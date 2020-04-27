@@ -78,6 +78,7 @@ def consumer():
     )
     channel = connection.channel()
     channel.exchange_declare(exchange=os.environ["ENVIRONMENT"], exchange_type='direct')
+    channel.queue_declare(queue='collectors_queue', durable=True)
     channel.queue_bind(exchange=os.environ["ENVIRONMENT"], queue='collectors_queue')
     channel.queue_declare(queue='data_collectors_events')
     channel.basic_consume(on_message_callback=handle_events, queue='data_collectors_events', auto_ack=True)
