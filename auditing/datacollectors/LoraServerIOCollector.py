@@ -52,6 +52,11 @@ class LoraServerIOCollector(BaseCollector):
             self.mqtt_client.on_message = lambda client, userdata, msg: self.on_message(client, userdata, msg)
             self.mqtt_client.on_disconnect = lambda client, userdata, rc: self.on_disconnect(client, userdata, rc)
             self.mqtt_client.reconnect_delay_set(min_delay=10, max_delay=60)
+            
+            if self.password and self.user:
+                self.log.info(f"Setting MQTT credentials for: {self.mqtt_client.host}")
+                self.mqtt_client.username_pw_set(self.user, self.password)
+            
             self.mqtt_client.connect_async(self.host, self.port, self.TIMEOUT)
 
             self.mqtt_client.prev_packet = self.prev_packet
@@ -82,8 +87,8 @@ class LoraServerIOCollector(BaseCollector):
     def verify_topics(self, msg):
         if msg.topic[-5:] == "/join":
             return True
-        search = re.search('gateway/(.*)?/*', msg.topic)
-        if search is not None and (search.group(0)[-2:] in ["rx", "tx"]):
+
+        if re.search('gateway/(.*)?/*', msg.topic) is not None:
             return True
         if re.search('application/.*?/device/(.*)/rx', msg.topic) is not None:
             return True
@@ -295,7 +300,7 @@ class LoraServerIOCollector(BaseCollector):
                     client.prev_packet = None
 
                     if standard_packet['f_count'] == mqtt_messsage.get('fCnt', None):
-                        # Set location if given
+                        # Set location and gw name if given
                         if len(mqtt_messsage.get('rxInfo', None)) > 0:
                             location = mqtt_messsage.get('rxInfo', None)[0].get('location', None)
 
@@ -303,6 +308,10 @@ class LoraServerIOCollector(BaseCollector):
                                 standard_packet['latitude'] = location.get('latitude', None)
                                 standard_packet['longitude'] = location.get('longitude', None)
                                 standard_packet['altitude'] = location.get('altitude', None)
+
+                            gw_name= mqtt_messsage.get('rxInfo')[0].get('name')
+                            if gw_name:
+                                standard_packet['gw_name']= gw_name
 
                                 # Make sure we've matched the same device
                         if 'dev_eui' in standard_packet and standard_packet['dev_eui'] is not None and standard_packet[
@@ -380,7 +389,7 @@ class LoraServerIOCollector(BaseCollector):
     def on_connect(self, client, userdata, flags, rc):
         # If this connection is a test, activate the flag and emit the event
         if self.being_tested:
-            notify_test_event(client.data_collector_id, 'SUCCESS')
+            notify_test_event(client.data_collector_id, 'SUCCESS', 'Connection successful')
             self.stop_testing = True
             return
         else:
