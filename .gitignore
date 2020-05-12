@@ -3,3 +3,4 @@
 *.so
 *.h
 .vscode
+.DS_Store
