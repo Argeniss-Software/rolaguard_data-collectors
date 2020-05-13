@@ -92,20 +92,24 @@ class TTNCollector(BaseCollector):
         super(TTNCollector, self).disconnect()
 
     def verify_payload(self, msg):
-        if not self.has_to_parse:
-            self.log.debug('message does not include physical payload')
-            return True  # NOT SURE if this should be True or False
+        # If we managed to login into TTN, then we are sure we're receiving TTN messages.
+        # Then, I comment the code below
+        return True
+        
+        # if not self.has_to_parse:
+        #     self.log.debug('message does not include physical payload')
+        #     return True  # NOT SURE if this should be True or False
 
-        phyPayload = msg.get('payload', None)
-        if not phyPayload:
-            self.log.error("Payload not present in message")
-            return False
-        try:
-            phy_parser.setPHYPayload(phyPayload)
-            return True
-        except Exception as e:
-            self.log.error(f'Error parsing physical payload: {e}')
-            return False
+        # phyPayload = msg.get('payload', None)
+        # if not phyPayload:
+        #     self.log.error("Payload not present in message")
+        #     return False
+        # try:
+        #     phy_parser.setPHYPayload(phyPayload)
+        #     return True
+        # except Exception as e:
+        #     self.log.error(f'Error parsing physical payload: {e}')
+        #     return False
 
     def on_message(self, ws, raw_message):
         if self.being_tested:
