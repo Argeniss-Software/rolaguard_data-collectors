@@ -50,7 +50,7 @@ class Alert(Base):
 class Gateway(Base):
     __tablename__ = 'gateway'
     id = Column(BigIntegerType, primary_key=True, autoincrement=True)
-    gw_hex_id = Column(String(16), nullable=True)
+    gw_hex_id = Column(String(100), nullable=True)
     location_latitude = Column(Float, nullable=True)
     location_longitude = Column(Float, nullable=True)
     data_collector_id = Column(BigIntegerType, ForeignKey("data_collector.id"), nullable=False)
