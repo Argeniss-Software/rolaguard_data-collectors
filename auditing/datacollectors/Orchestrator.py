@@ -22,17 +22,17 @@ collectors = []
 
 
 def main():
-    print('Starting Orchestrator')
+    LOG.debug('Starting Orchestrator')
     data_collectors = []
 
     try:
-        print('Fetching collectors from backend')
+        LOG.debug('Fetching collectors from backend')
         data_collectors = fetch_data_collectors()
     except Exception as exc:
         LOG.error('Something went wrong fetching data collectors.' + str(exc))
         exit(-1)
 
-    print(f"Found {len(data_collectors)} data collectors")
+    LOG.debug(f"Found {len(data_collectors)} data collectors")
     rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"], os.environ["RABBITMQ_DEFAULT_PASS"])
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(host=os.environ["RABBITMQ_HOST"], port=int(os.environ["RABBITMQ_PORT"]),
