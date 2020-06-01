@@ -90,7 +90,7 @@ class DataCollector(Base):
     user = Column(String(120), nullable=False)
     password = Column(String(120), nullable=False)
     ssl = Column(Boolean, nullable=True)
-    gateway_id = Column(String(50), nullable=True)
+    gateway_id = Column(String(100), nullable=True)
     organization_id = Column(BigInteger, ForeignKey("organization.id"), nullable=False)
     policy_id = Column(BigInteger, ForeignKey("policy.id"), nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
