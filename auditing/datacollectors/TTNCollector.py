@@ -157,7 +157,7 @@ class TTNCollector(BaseCollector):
                     ws.location['latitude'] = status_message.get('status').get('location').get('latitude')
                     ws.location['altitude'] = status_message.get('status').get('location').get('altitude')
                 except Exception as e:
-                    self.log.error("Error when fetching location in TTNCollector:" + str(e) + " Message: " + raw_message)
+                    self.log.error(f"Error when fetching location in TTNCollector: {str(e)}  Message: {raw_message}" )
             message = message.replace('\\"', '"')
 
             # Save the message that originates the packet
@@ -215,30 +215,29 @@ class TTNCollector(BaseCollector):
             # Save the packet
             save(ws.packet_writter_message, ws.data_collector_id)
 
-            self.log.debug('Message received from TTN saved in DB: {0}.'.format(ws.packet_writter_message))
+            self.log.debug(f'Message received from TTN saved in DB: {ws.packet_writter_message}.')
 
             # Reset this variable
             ws.packet_writter_message = self.init_packet_writter_message()
 
         except Exception as e:
-            self.log.error("Error creating Packet in TTNCollector ID " + ws.data_collector_id + ":" + str(
-                e) + " Message: " + raw_message)
+            self.log.error(f"Error creating Packet in TTNCollector ID {ws.data_collector_id}: {str(e)} Message: {raw_message}")
             save_parsing_error(ws.data_collector_id, raw_message)
 
     def on_error(self, ws, error):
         # If this connection is a test, send the event
         if self.being_tested:
             notify_test_event(self.data_collector_id, 'ERROR', str(error))
-            self.log.error("Error testing DataCollector ID {0}: {1}".format(self.data_collector_id, str(error)))
+            self.log.error(f"Error testing DataCollector ID {self.data_collector_id}: {str(error)}")
             self.stop_testing = True
             return
         else:
-            self.log.error("Error ws: {}".format(str(error)))
+            self.log.error(f"Error ws: {str(error)}")
 
     def on_close(self, ws):  # similar to on_disconnect
         ws.close()
         ws.is_closed = True
-        self.log.info("Disconnected to gw: {}".format(ws.gateway_id))
+        self.log.info(f"Disconnected to gw: {ws.gateway_id}")
 
     def on_open(self, ws):  # similar to on_connect
         # If this connection is a test, activate the flag and emit the event
@@ -251,7 +250,7 @@ class TTNCollector(BaseCollector):
         ws.send('["token:' + ws.access_token + '"]')
         self.connected = "CONNECTED"
         ws.is_closed = False
-        self.log.info("Connected to GW:" + ws.gateway)
+        self.log.info(f"Connected to GW: {ws.gateway}" )
 
     def login(self, user, password):
         ses = requests.Session()
@@ -262,27 +261,30 @@ class TTNCollector(BaseCollector):
         return ses if res.status_code == 200 else None
 
     def fetch_access_token(self, ses):
-        self.log.info('ses' + str(ses.cookies))
+        self.log.info(f'ses cookies: {str(ses.cookies)}')
         res = ses.get(access_token_url, timeout=30)
-        self.log.info('res' + str(res))
+        self.log.info(f'res: {str(res)}')
         return res.json()
 
     def schedule_refresh_token(self, ws, session, first_expires):
         expires = first_expires
         while (not ws.is_closed):
-            self.log.info("expires: " + str(expires))
+            self.log.info(f"expires: {str(expires)}")
             if expires:
                 dt = datetime.fromtimestamp(expires / 1000)
-                self.log.info("sleep: " + str((dt - datetime.now()).seconds - 60))
-                sleep((dt - datetime.now()).seconds - 900)  # -15 min
-                self.log.info("is closed: " + str(ws.is_closed))
+                
+                sleep_time= (dt - datetime.now()).seconds - 900 # -15 min
+                self.log.debug(f"sleep: {str(sleep_time)}")
+                sleep(sleep_time)
+
+                self.log.debug(f"WS is closed: {str(ws.is_closed)}")
             try:
                 data_access = self.fetch_access_token(session)
                 access_token = data_access.get('access_token')
                 expires = data_access.get('expires')
                 ws.access_token = access_token
-                self.log.info("access token: " + access_token)
+                self.log.info(f"access token: {access_token}")
                 ws.send('["token:' + access_token + '"]')
             except Exception as exc:
-                self.log.error('error fetching access token: ' + str(exc))
+                self.log.error(f'error fetching access token: {str(exc)}')
                 expires = None
