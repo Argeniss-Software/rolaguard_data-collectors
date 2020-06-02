@@ -62,7 +62,7 @@ class TTNCollector(BaseCollector):
             self.ws.packet_writter_message = self.packet_writter_message
             self.ws.location = self.location
 
-            thread = threading.Thread(target=self.ws.run_forever)
+            thread = threading.Thread(target=self.ws.run_forever, kwargs={'ping_interval': 20})
             thread.daemon = True
             thread.start()
 
