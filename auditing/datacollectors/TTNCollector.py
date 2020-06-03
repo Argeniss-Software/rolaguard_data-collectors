@@ -268,6 +268,7 @@ class TTNCollector(BaseCollector):
 
     def schedule_refresh_token(self, ws, session, first_expires):
         expires = first_expires
+        connection_attempts= 0
         while (not ws.is_closed):
             self.log.info(f"expires: {str(expires)}")
             if expires:
@@ -285,6 +286,12 @@ class TTNCollector(BaseCollector):
                 ws.access_token = access_token
                 self.log.info(f"access token: {access_token}")
                 ws.send('["token:' + access_token + '"]')
+                connection_attempts= 0
             except Exception as exc:
                 self.log.error(f'error fetching access token: {str(exc)}')
                 expires = None
+                connection_attempts+=1
+                if connection_attempts>= 3:
+                    self.log.debug(f"Reconnecting DataCollector ID {self.data_collector_id}")
+                    self.ws.close()
+                    self.connect()
