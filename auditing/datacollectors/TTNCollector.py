@@ -35,6 +35,7 @@ class TTNCollector(BaseCollector):
         # Dict containing location 
         self.location = dict()
         self.being_tested = False
+        self.ws_thread= None
 
     def connect(self):
         super(TTNCollector, self).connect()
@@ -62,9 +63,9 @@ class TTNCollector(BaseCollector):
             self.ws.packet_writter_message = self.packet_writter_message
             self.ws.location = self.location
 
-            thread = threading.Thread(target=self.ws.run_forever, kwargs={'ping_interval': 20})
-            thread.daemon = True
-            thread.start()
+            self.ws_thread = threading.Thread(target=self.ws.run_forever, kwargs={'ping_interval': 20})
+            self.ws_thread.daemon = True
+            self.ws_thread.start()
 
             thread = threading.Thread(target=self.schedule_refresh_token, args=(self.ws, self.session, expires))
             thread.daemon = True
@@ -292,6 +293,10 @@ class TTNCollector(BaseCollector):
                 expires = None
                 connection_attempts+=1
                 if connection_attempts>= 3:
-                    self.log.debug(f"Reconnecting DataCollector ID {self.data_collector_id}")
+                    self.log.debug(f"Stopping websocket DataCollector ID {self.data_collector_id}")
+                    self.ws.keep_running = False
                     self.ws.close()
+                    self.ws_thread.join()
+                    self.ws= None
+                    self.log.debug(f"Reconnecting websocket DataCollector ID {self.data_collector_id}")
                     self.connect()
