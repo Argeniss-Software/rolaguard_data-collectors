@@ -294,9 +294,8 @@ class TTNCollector(BaseCollector):
                 connection_attempts+=1
                 if connection_attempts>= 3:
                     self.log.debug(f"Stopping websocket DataCollector ID {self.data_collector_id}")
-                    self.ws.keep_running = False
                     self.ws.close()
                     self.ws_thread.join()
                     self.ws= None
-                    self.log.debug(f"Reconnecting websocket DataCollector ID {self.data_collector_id}")
+                    self.log.info(f"Reconnecting websocket DataCollector ID {self.data_collector_id}")
                     self.connect()
