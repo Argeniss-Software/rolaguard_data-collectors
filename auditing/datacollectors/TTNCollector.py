@@ -36,6 +36,7 @@ class TTNCollector(BaseCollector):
         self.location = dict()
         self.being_tested = False
         self.ws_thread= None
+        self.refresh_token_thread= None
 
     def connect(self):
         super(TTNCollector, self).connect()
@@ -67,9 +68,9 @@ class TTNCollector(BaseCollector):
             self.ws_thread.daemon = True
             self.ws_thread.start()
 
-            thread = threading.Thread(target=self.schedule_refresh_token, args=(self.ws, self.session, expires))
-            thread.daemon = True
-            thread.start()
+            self.refresh_token_thread = threading.Thread(target=self.schedule_refresh_token, args=(self.ws, self.session, expires))
+            self.refresh_token_thread.daemon = True
+            self.refresh_token_thread.start()
         else:
             if self.being_tested:
                 notify_test_event(self.data_collector_id, 'ERROR', 'Login failed')
@@ -122,6 +123,16 @@ class TTNCollector(BaseCollector):
         else:
             self.log.debug('Message len <= 1, skipping')
             return
+
+        # Retry after disconnection. End thread refreshing token before
+        if '[200,"disconnected"]' in raw_message:
+            self.log.info(f"DataCollector {self.data_collector_id}: Disconnected by server. Reconnecting.")
+            ws.close()
+            ws.is_closed= True
+            self.log.debug(f"DataCollector {self.data_collector_id}: Joining refresh token thread.")
+            self.refresh_token_thread.join()
+            self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token thread joined.")
+            self.connect()
 
         # Remove data format stuff
         message = raw_message.replace('\\"', '"')
@@ -270,15 +281,19 @@ class TTNCollector(BaseCollector):
     def schedule_refresh_token(self, ws, session, first_expires):
         expires = first_expires
         connection_attempts= 0
-        while (not ws.is_closed):
-            self.log.info(f"expires: {str(expires)}")
-            if expires:
-                dt = datetime.fromtimestamp(expires / 1000)
-                
-                sleep_time= (dt - datetime.now()).seconds - 900 # -15 min
-                self.log.debug(f"sleep: {str(sleep_time)}")
-                sleep(sleep_time)
+        expire_dt= None
 
+        while (not ws.is_closed):
+            if expires:
+                if expire_dt is not None \
+                    and expire_dt > datetime.now(): 
+                    sleep(30)
+                    continue
+                
+                expire_dt = datetime.fromtimestamp((expires / 1000)-900) # Converted from ms to seconds and substracted 15 min
+                self.log.info(f"expires: {str(expires)}")
+
+                self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token in {(expire_dt - datetime.now()).seconds} seconds")
                 self.log.debug(f"WS is closed: {str(ws.is_closed)}")
             try:
                 data_access = self.fetch_access_token(session)
@@ -293,9 +308,12 @@ class TTNCollector(BaseCollector):
                 expires = None
                 connection_attempts+=1
                 if connection_attempts>= 3:
-                    self.log.debug(f"Stopping websocket DataCollector ID {self.data_collector_id}")
+                    self.log.info(f"DataCollector {self.data_collector_id}: Stopping websocket")
                     self.ws.close()
                     self.ws_thread.join()
                     self.ws= None
-                    self.log.info(f"Reconnecting websocket DataCollector ID {self.data_collector_id}")
+                    self.log.info(f"DataCollector {self.data_collector_id}: Reconnecting websocket")
                     self.connect()
+        
+        self.log.info(f"DataCollector {self.data_collector_id}: Stop token refresh")
+        
