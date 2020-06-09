@@ -51,7 +51,7 @@ class TTNCollector(BaseCollector):
             self.ws = websocket.WebSocketApp(ws_url,
                                              on_message=lambda ws, msg: self.on_message(ws, msg),
                                              on_error=lambda ws, msg: self.on_error(ws, msg),
-                                             on_close=lambda ws, msg: self.on_close(ws))
+                                             on_close=lambda ws: self.on_close(ws))
             self.log.debug(f'WebSocket app initialized')
             self.ws.access_token = access_token
             self.ws.gateway = self.gateway_id
@@ -281,20 +281,20 @@ class TTNCollector(BaseCollector):
     def schedule_refresh_token(self, ws, session, first_expires):
         expires = first_expires
         connection_attempts= 0
-        expire_dt= None
+        
+        expire_dt = datetime.fromtimestamp((expires / 1000)-900) # Converted from ms to seconds and substracted 15 min
+        self.log.info(f"expires: {str(expires)}")
+        self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token in {(expire_dt - datetime.now()).seconds} seconds")
+        self.log.debug(f"WS is closed: {str(ws.is_closed)}")
+        
 
         while (not ws.is_closed):
-            if expires:
-                if expire_dt is not None \
-                    and expire_dt > datetime.now(): 
-                    sleep(30)
-                    continue
+            
+            if expire_dt is not None \
+                and expire_dt > datetime.now(): 
+                sleep(30)
+                continue
                 
-                expire_dt = datetime.fromtimestamp((expires / 1000)-900) # Converted from ms to seconds and substracted 15 min
-                self.log.info(f"expires: {str(expires)}")
-
-                self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token in {(expire_dt - datetime.now()).seconds} seconds")
-                self.log.debug(f"WS is closed: {str(ws.is_closed)}")
             try:
                 data_access = self.fetch_access_token(session)
                 access_token = data_access.get('access_token')
@@ -314,6 +314,13 @@ class TTNCollector(BaseCollector):
                     self.ws= None
                     self.log.info(f"DataCollector {self.data_collector_id}: Reconnecting websocket")
                     self.connect()
+                continue
+            
+            if expires:
+                expire_dt = datetime.fromtimestamp((expires / 1000)-900) # Converted from ms to seconds and substracted 15 min
+                self.log.info(f"expires: {str(expires)}")
+                self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token in {(expire_dt - datetime.now()).seconds} seconds")
+                self.log.debug(f"WS is closed: {str(ws.is_closed)}")
         
         self.log.info(f"DataCollector {self.data_collector_id}: Stop token refresh")
         
