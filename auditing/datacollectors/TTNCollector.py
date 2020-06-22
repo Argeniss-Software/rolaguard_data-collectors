@@ -35,6 +35,8 @@ class TTNCollector(BaseCollector):
         # Dict containing location 
         self.location = dict()
         self.being_tested = False
+        self.ws_thread= None
+        self.refresh_token_thread= None
 
     def connect(self):
         super(TTNCollector, self).connect()
@@ -49,7 +51,7 @@ class TTNCollector(BaseCollector):
             self.ws = websocket.WebSocketApp(ws_url,
                                              on_message=lambda ws, msg: self.on_message(ws, msg),
                                              on_error=lambda ws, msg: self.on_error(ws, msg),
-                                             on_close=lambda ws, msg: self.on_close(ws))
+                                             on_close=lambda ws: self.on_close(ws))
             self.log.debug(f'WebSocket app initialized')
             self.ws.access_token = access_token
             self.ws.gateway = self.gateway_id
@@ -62,13 +64,13 @@ class TTNCollector(BaseCollector):
             self.ws.packet_writter_message = self.packet_writter_message
             self.ws.location = self.location
 
-            thread = threading.Thread(target=self.ws.run_forever)
-            thread.daemon = True
-            thread.start()
+            self.ws_thread = threading.Thread(target=self.ws.run_forever, kwargs={'ping_interval': 20})
+            self.ws_thread.daemon = True
+            self.ws_thread.start()
 
-            thread = threading.Thread(target=self.schedule_refresh_token, args=(self.ws, self.session, expires))
-            thread.daemon = True
-            thread.start()
+            self.refresh_token_thread = threading.Thread(target=self.schedule_refresh_token, args=(self.ws, self.session, expires))
+            self.refresh_token_thread.daemon = True
+            self.refresh_token_thread.start()
         else:
             if self.being_tested:
                 notify_test_event(self.data_collector_id, 'ERROR', 'Login failed')
@@ -122,6 +124,16 @@ class TTNCollector(BaseCollector):
             self.log.debug('Message len <= 1, skipping')
             return
 
+        # Retry after disconnection. End thread refreshing token before
+        if '[200,"disconnected"]' in raw_message:
+            self.log.info(f"DataCollector {self.data_collector_id}: Disconnected by server. Reconnecting.")
+            ws.close()
+            ws.is_closed= True
+            self.log.debug(f"DataCollector {self.data_collector_id}: Joining refresh token thread.")
+            self.refresh_token_thread.join()
+            self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token thread joined.")
+            self.connect()
+
         # Remove data format stuff
         message = raw_message.replace('\\"', '"')
         origin_message = message
@@ -157,7 +169,7 @@ class TTNCollector(BaseCollector):
                     ws.location['latitude'] = status_message.get('status').get('location').get('latitude')
                     ws.location['altitude'] = status_message.get('status').get('location').get('altitude')
                 except Exception as e:
-                    self.log.error("Error when fetching location in TTNCollector:" + str(e) + " Message: " + raw_message)
+                    self.log.error(f"Error when fetching location in TTNCollector: {str(e)}  Message: {raw_message}" )
             message = message.replace('\\"', '"')
 
             # Save the message that originates the packet
@@ -215,30 +227,29 @@ class TTNCollector(BaseCollector):
             # Save the packet
             save(ws.packet_writter_message, ws.data_collector_id)
 
-            self.log.debug('Message received from TTN saved in DB: {0}.'.format(ws.packet_writter_message))
+            self.log.debug(f'Message received from TTN saved in DB: {ws.packet_writter_message}.')
 
             # Reset this variable
             ws.packet_writter_message = self.init_packet_writter_message()
 
         except Exception as e:
-            self.log.error("Error creating Packet in TTNCollector ID " + ws.data_collector_id + ":" + str(
-                e) + " Message: " + raw_message)
+            self.log.error(f"Error creating Packet in TTNCollector ID {ws.data_collector_id}: {str(e)} Message: {raw_message}")
             save_parsing_error(ws.data_collector_id, raw_message)
 
     def on_error(self, ws, error):
         # If this connection is a test, send the event
         if self.being_tested:
             notify_test_event(self.data_collector_id, 'ERROR', str(error))
-            self.log.error("Error testing DataCollector ID {0}: {1}".format(self.data_collector_id, str(error)))
+            self.log.error(f"Error testing DataCollector ID {self.data_collector_id}: {str(error)}")
             self.stop_testing = True
             return
         else:
-            self.log.error("Error ws: {}".format(str(error)))
+            self.log.error(f"Error ws: {str(error)}")
 
     def on_close(self, ws):  # similar to on_disconnect
         ws.close()
         ws.is_closed = True
-        self.log.info("Disconnected to gw: {}".format(ws.gateway_id))
+        self.log.info(f"Disconnected to gw: {ws.gateway_id}")
 
     def on_open(self, ws):  # similar to on_connect
         # If this connection is a test, activate the flag and emit the event
@@ -251,7 +262,7 @@ class TTNCollector(BaseCollector):
         ws.send('["token:' + ws.access_token + '"]')
         self.connected = "CONNECTED"
         ws.is_closed = False
-        self.log.info("Connected to GW:" + ws.gateway)
+        self.log.info(f"Connected to GW: {ws.gateway}" )
 
     def login(self, user, password):
         ses = requests.Session()
@@ -262,27 +273,52 @@ class TTNCollector(BaseCollector):
         return ses if res.status_code == 200 else None
 
     def fetch_access_token(self, ses):
-        self.log.info('ses' + str(ses.cookies))
+        self.log.info(f'ses cookies: {str(ses.cookies)}')
         res = ses.get(access_token_url, timeout=30)
-        self.log.info('res' + str(res))
+        self.log.info(f'res: {str(res)}')
         return res.json()
 
     def schedule_refresh_token(self, ws, session, first_expires):
         expires = first_expires
+        connection_attempts= 0
+        expire_dt= None
+        
         while (not ws.is_closed):
-            self.log.info("expires: " + str(expires))
+            
+            if expire_dt is not None and expire_dt > datetime.now(): 
+                sleep(30)
+                continue
+
             if expires:
-                dt = datetime.fromtimestamp(expires / 1000)
-                self.log.info("sleep: " + str((dt - datetime.now()).seconds - 60))
-                sleep((dt - datetime.now()).seconds - 900)  # -15 min
-                self.log.info("is closed: " + str(ws.is_closed))
+                expire_dt = datetime.fromtimestamp((expires / 1000)-900) # Converted from ms to seconds and substracted 15 min
+                self.log.info(f"expires: {str(expires)}")
+                self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token in {(expire_dt - datetime.now()).seconds} seconds")
+                self.log.debug(f"WS is closed: {str(ws.is_closed)}")
+
+                if first_expires:
+                    first_expires=None
+                    continue
+                
             try:
                 data_access = self.fetch_access_token(session)
                 access_token = data_access.get('access_token')
                 expires = data_access.get('expires')
                 ws.access_token = access_token
-                self.log.info("access token: " + access_token)
+                self.log.info(f"access token: {access_token}")
                 ws.send('["token:' + access_token + '"]')
+                connection_attempts= 0
             except Exception as exc:
-                self.log.error('error fetching access token: ' + str(exc))
-                expires = None
+                self.log.error(f'error fetching access token: {str(exc)}')
+                expires= None
+                expire_dt= None
+                connection_attempts+=1
+                if connection_attempts>= 3:
+                    self.log.info(f"DataCollector {self.data_collector_id}: Stopping websocket")
+                    self.ws.close()
+                    self.ws_thread.join()
+                    self.ws= None
+                    self.log.info(f"DataCollector {self.data_collector_id}: Reconnecting websocket")
+                    self.connect()
+        
+        self.log.info(f"DataCollector {self.data_collector_id}: Stop token refresh")
+        

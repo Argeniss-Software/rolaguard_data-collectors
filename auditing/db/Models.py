@@ -50,7 +50,7 @@ class Alert(Base):
 class Gateway(Base):
     __tablename__ = 'gateway'
     id = Column(BigIntegerType, primary_key=True, autoincrement=True)
-    gw_hex_id = Column(String(16), nullable=True)
+    gw_hex_id = Column(String(100), nullable=True)
     location_latitude = Column(Float, nullable=True)
     location_longitude = Column(Float, nullable=True)
     data_collector_id = Column(BigIntegerType, ForeignKey("data_collector.id"), nullable=False)
@@ -90,7 +90,7 @@ class DataCollector(Base):
     user = Column(String(120), nullable=False)
     password = Column(String(120), nullable=False)
     ssl = Column(Boolean, nullable=True)
-    gateway_id = Column(String(50), nullable=True)
+    gateway_id = Column(String(100), nullable=True)
     organization_id = Column(BigInteger, ForeignKey("organization.id"), nullable=False)
     policy_id = Column(BigInteger, ForeignKey("policy.id"), nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
