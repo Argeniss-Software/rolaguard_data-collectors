@@ -325,7 +325,7 @@ class LoraServerIOCollector(BaseCollector):
 
                     if standard_packet['f_count'] == mqtt_messsage.get('fCnt', None):
                         # Set location and gw name if given
-                        if len(mqtt_messsage.get('rxInfo', None)) > 0:
+                        if 'rxInfo' in mqtt_messsage:
                             location = mqtt_messsage.get('rxInfo', None)[0].get('location', None)
 
                             if location:
