@@ -24,6 +24,45 @@ from google.protobuf.json_format import MessageToJson
 class LoraServerIOCollector(BaseCollector):
     TIMEOUT = 60
 
+    """
+    This collector establishes a connection to a MQTT broker. Thus, we're using the paho mqtt client.
+
+    Once we are connected to the broker, the most important function is on_message(). There are two 
+    topics that provide the most valuable information: */gateway/* and */application/*.
+    
+    The topic */gateway/* provides the packets in B64 format (PHYPayload) and also TX/RX metadata. Nevertheless,
+    there's rich metadata such as AppName, DeviceName, GatewayName, etc that's not in this topic. To fetch this 
+    data we need to read the topic */application/*.
+
+    The topic */application/*, besides to providing the AppName, DeviceName, GatewayName, gives us the 
+    association between DevAddr and DevEUI.
+
+    So, the 'packet' object sent to the DB could be formed with data from a gateway/* topic message and an 
+    application/* topic message (the later is a complement, not required). The gateway/* topic message will
+    always generate a 'packet' object.
+
+    For creating a packet, the MOST IMPORTANT steps in high-level are:
+    1- We receive a message from a gateway/* topic message:
+        a- If we have the metadata provided in application/* in memory, we can send the packet directly to the
+        MQTT queue
+        b- Otherwise, we store the prev_packet with the hope that an application/* message comes after
+    2- After, we might receive an application/* topic message. In case we have a prev_packet, the DevAddr in
+    both messages match, and the counter is the same (meaning both MQTT messages originated from the same message), 
+    we save this metadata and put it into the prev_packet which is then sent into the MQTT. 
+
+    ****Further considerations for the */gateway/* topic****
+    Depending on how's configured the Chirsptack infrastructure, messages in the */gateway/* topic can have 
+    JSON or protobuf encoding.
+
+    An observed rule is: 
+    * If message cannot be decoded to JSON and the topic ends in 'up', it's a protobuf message. 
+    * Otherwise, the message can be decoded to JSON and topic ends in 'rx' or 'tx'.
+
+    If we receive a protobuf message, it usually comes with both rx and tx data. Otherwise, this data comes in 
+    separated messages. It might happend that in an 'up' message, we don't receive as many fields as in JSON 
+    messages.
+    """
+
     def __init__(self, data_collector_id, organization_id, host, port, ssl, user, password, topics, last_seen,
                  connected, verified):
         super().__init__(data_collector_id=data_collector_id, organization_id=organization_id, verified=verified)
