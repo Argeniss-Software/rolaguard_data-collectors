@@ -42,7 +42,7 @@ class TTNCollector(BaseCollector):
         super(TTNCollector, self).connect()
         self.session = self.login(self.user, self.password)
         if self.session:
-            self.connected = "DISCONNECTED"
+            self.connected = "CONNECTED"
             self.manually_disconnected = None
             data_access = self.fetch_access_token(self.session)
             access_token = data_access.get('access_token')
