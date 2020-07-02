@@ -101,7 +101,7 @@ def check_data_collectors_status():
             for collector in collectors:
                 collector_id = collector.data_collector_id
 
-                if collector.connected != collectors_dict_connected.get(collector_id, 'DISCONNECTED') or \
+                if collector.connected != collectors_dict_connected.get(collector_id, 'CONNECTED') or \
                         collector.verified != collectors_dict_verified.get(collector_id, False):
 
                     body = {
