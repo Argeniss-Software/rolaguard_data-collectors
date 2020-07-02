@@ -86,6 +86,8 @@ def consumer():
 
 
 def check_data_collectors_status():
+    # Wait until every collector is up after deployment. This is to avoid unstable logging in the frontend.
+    time.sleep(60*2)
     while (True):
         try:
             rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"],
