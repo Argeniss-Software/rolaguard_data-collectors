@@ -43,19 +43,22 @@ def main():
         collector = create_collector(dc)
         if collector:
             if dc.get('status') != 'DISABLED':
-                event = {
-                    "data_collector_id": collector.data_collector_id,
-                    "status": 'DISCONNECTED',
-                    "is_restart": True
-                }
-                event = json.dumps(event)
+                
+                # Sending this event is confusing for the user because it shows a
+                #  restart event in the logs when we deploy this code
 
-                try:
-                    channel.basic_publish(exchange='', routing_key='data_collectors_status_events',
-                                          body=event.encode('utf-8'))
-                except Exception as e:
-                    LOG.error("Error when sending status update to queue while starting collector: " + str(
-                        e) + "Collector ID: " + str(collector.data_collector_id))
+                # event = {
+                #     "data_collector_id": collector.data_collector_id,
+                #     "status": 'DISCONNECTED',
+                #     "is_restart": True 
+                # }
+                # event = json.dumps(event)
+                # try:
+                #     channel.basic_publish(exchange='', routing_key='data_collectors_status_events',
+                #                           body=event.encode('utf-8'))
+                # except Exception as e:
+                #     LOG.error("Error when sending status update to queue while starting collector: " + str(
+                #         e) + "Collector ID: " + str(collector.data_collector_id))
 
                 collector.connect()
 
