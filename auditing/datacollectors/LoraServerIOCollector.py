@@ -273,7 +273,7 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayID')).hex()
                         standard_packet['chan'] = x_info.get('channel')
                         standard_packet['rfch'] = x_info.get('rfChain')
-                        standard_packet['stat'] = x_info.get('crcStatus')
+                        standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
                         standard_packet['rssi'] = x_info.get('rssi')
                         standard_packet['lsnr'] = x_info.get('loRaSNR')
                         standard_packet['size'] = x_info.get('size')      
@@ -301,7 +301,7 @@ class LoraServerIOCollector(BaseCollector):
                         
                     standard_packet['tmst'] = x_info.get('timestamp')    
                     standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
-                    standard_packet['gateway'] = x_info.get('mac') if 'mac' in x_info else None
+                    standard_packet['gateway'] = x_info.get('mac')
                     
                     data_rate= x_info.get('dataRate')
                     standard_packet['modu'] = data_rate.get('modulation')
@@ -468,6 +468,14 @@ class LoraServerIOCollector(BaseCollector):
             self.connected = "DISCONNECTED"
             self.log.info("Unexpected disconnection.")
 
+def get_crc_status_integer(status_string):
+    # This mapping is in https://github.com/brocaar/chirpstack-api/blob/master/protobuf/gw/gw.proto
+    if status_string=='CRC_OK':
+        return 1
+    elif status_string=='BAD_CRC':
+        return -1
+    elif status_string=='NO_CRC':
+        return 0
 
 if __name__ == '__main__':
     from auditing.db.Models import DataCollector, DataCollectorType, Organization, commit, rollback
