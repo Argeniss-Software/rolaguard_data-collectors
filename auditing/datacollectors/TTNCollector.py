@@ -21,6 +21,51 @@ ws_url = os.environ[
 
 
 class TTNCollector(BaseCollector):
+
+    """
+    This collector establishes a connection to a thethingsnetwork.com account and 
+    retrieves data from the https://console.thethingsnetwork.org/gateways/eui-THEGATEWAYID/traffic
+    endpoint using websockets.
+
+    The steps to retrieve gateway payloads:
+    1- Get the access token
+    2- Using the access token and the Gateway ID (see below for its format), suscribe
+    to the web socket.
+    3- Handle messages with the on_message() function.
+
+    There are 5 kinds of messages:
+    * gateway downlink and gateway uplink: this is, uplink and downlink data messages
+    (PHYpayload) as well as radio metadata.
+    * join request and join accept
+    * gateway status: it provides the location of the gateway.
+
+    About the functioning of this collector:
+    1- It's instantiated in the Orchestrator, and it's started by executing connect()
+    method
+    2- In connect(), 2 threads are launched: 
+        a- one for the WS socket connection, where messages are processed. In case we
+        receive a disconnection message from the server, the refresh token thread is 
+        stopped and the connect() method is executed again.
+        b- and the other thread is for refreshing the access token every N minutes. In
+        the case where is not possible to send the new access token to the web server,
+        and after 3 consecutive failed attemps, this thread stops the WS thread and 
+        executes the connect() method.
+
+    Some considerations about this endpoint / websocket:
+    * It provides messages with the same amount of information as the packet_forwarder,
+    which means that NO application data is handled (such as direct associations)
+    between message/devEui, app_name, gw_name, etc.
+    * Sometimes it happens that the access token is retrieved but the web 
+    service refuses to accept it. In this situation, we manually restart the
+    WS and open a new connection.
+
+    About the Gateway ID format, it can be:
+    * Legacy packet-forwarder format: a string matching the pattern 'eui-aabbccddeeff0011'. 
+    This is, 'eui-' followed by 8 bytes in hex format (16 characters), or,
+    * TTN format: a lowercase alphanumeric string separated by hyphens.  
+
+    """
+
     def __init__(self, data_collector_id, organization_id, user, password, gateway_id, verified):
         super().__init__(data_collector_id=data_collector_id, organization_id=organization_id, verified=verified)
         self.user = user
