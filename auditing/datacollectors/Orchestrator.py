@@ -43,19 +43,22 @@ def main():
         collector = create_collector(dc)
         if collector:
             if dc.get('status') != 'DISABLED':
-                event = {
-                    "data_collector_id": collector.data_collector_id,
-                    "status": 'DISCONNECTED',
-                    "is_restart": True
-                }
-                event = json.dumps(event)
+                
+                # Sending this event is confusing for the user because it shows a
+                #  restart event in the logs when we deploy this code
 
-                try:
-                    channel.basic_publish(exchange='', routing_key='data_collectors_status_events',
-                                          body=event.encode('utf-8'))
-                except Exception as e:
-                    LOG.error("Error when sending status update to queue while starting collector: " + str(
-                        e) + "Collector ID: " + str(collector.data_collector_id))
+                # event = {
+                #     "data_collector_id": collector.data_collector_id,
+                #     "status": 'DISCONNECTED',
+                #     "is_restart": True 
+                # }
+                # event = json.dumps(event)
+                # try:
+                #     channel.basic_publish(exchange='', routing_key='data_collectors_status_events',
+                #                           body=event.encode('utf-8'))
+                # except Exception as e:
+                #     LOG.error("Error when sending status update to queue while starting collector: " + str(
+                #         e) + "Collector ID: " + str(collector.data_collector_id))
 
                 collector.connect()
 
@@ -86,6 +89,8 @@ def consumer():
 
 
 def check_data_collectors_status():
+    # Wait until every collector is up after deployment. This is to avoid unstable logging in the frontend.
+    time.sleep(60*2)
     while (True):
         try:
             rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"],
@@ -99,7 +104,7 @@ def check_data_collectors_status():
             for collector in collectors:
                 collector_id = collector.data_collector_id
 
-                if collector.connected != collectors_dict_connected.get(collector_id, 'DISCONNECTED') or \
+                if collector.connected != collectors_dict_connected.get(collector_id, 'CONNECTED') or \
                         collector.verified != collectors_dict_verified.get(collector_id, False):
 
                     body = {

@@ -1,20 +1,67 @@
 # LoRaWAN Security Framework - LoraServerIOCollector
 # Copyright (c) 2019 IOActive Inc.  All rights reserved.
 
-import sys, argparse, traceback, json, re, time
-from auditing import iot_logging
-# The MQTT client used and its documentation can be found in https://github.com/eclipse/paho.mqtt.python
-
+import sys
+import argparse
+import traceback
+import json
+import re
+import time
 import paho.mqtt.client as mqtt
+import chirpstack_api.gw.gw_pb2 as api
+import base64
+
+from auditing import iot_logging
 from time import sleep
 from datetime import datetime, timedelta
 import auditing.datacollectors.utils.PhyParser as phy_parser
 from auditing.datacollectors.BaseCollector import BaseCollector
 from auditing.datacollectors.utils.PacketPersistence import save, save_parsing_error, notify_test_event
+from google.protobuf.json_format import MessageToJson
+
 
 
 class LoraServerIOCollector(BaseCollector):
     TIMEOUT = 60
+
+    """
+    This collector establishes a connection to a MQTT broker. Thus, we're using the paho mqtt client.
+
+    Once we are connected to the broker, the most important function is on_message(). There are two 
+    topics that provide the most valuable information: */gateway/* and */application/*.
+    
+    The topic */gateway/* provides the packets in B64 format (PHYPayload) and also TX/RX metadata. Nevertheless,
+    there's rich metadata such as AppName, DeviceName, GatewayName, etc that's not in this topic. To fetch this 
+    data we need to read the topic */application/*.
+
+    The topic */application/*, besides to providing the AppName, DeviceName, GatewayName, gives us the 
+    association between DevAddr and DevEUI.
+
+    So, the 'packet' object sent to the DB could be formed with data from a gateway/* topic message and an 
+    application/* topic message (the later is a complement, not required). The gateway/* topic message will
+    always generate a 'packet' object.
+
+    For creating a packet, the MOST IMPORTANT steps in high-level are:
+    1- We receive a message from a gateway/* topic message:
+        a- If we have the metadata provided in application/* in memory, we can send the packet directly to the
+        MQTT queue
+        b- Otherwise, we store the prev_packet with the hope that an application/* message comes after
+    2- After, we might receive an application/* topic message. In case we have a prev_packet, the DevAddr in
+    both messages match, and the counter is the same (meaning both MQTT messages originated from the same message), 
+    we save this metadata and put it into the prev_packet which is then sent into the MQTT. 
+
+    ****Further considerations for the */gateway/* topic****
+    Depending on how's configured the Chirsptack infrastructure, messages in the */gateway/* topic can have 
+    JSON or protobuf encoding.
+
+    An observed rule is: 
+    * If message cannot be decoded to JSON and the topic ends in 'up', it's a protobuf message. 
+    * Otherwise, the message can be decoded to JSON and topic ends in 'rx' or 'tx'.
+
+    If we receive a protobuf message, it usually comes with both rx and tx data. Otherwise, this data comes in 
+    separated messages. It might happend that in an 'up' message, we don't receive as many fields as in JSON 
+    messages.
+    """
 
     def __init__(self, data_collector_id, organization_id, host, port, ssl, user, password, topics, last_seen,
                  connected, verified):
@@ -129,6 +176,9 @@ class LoraServerIOCollector(BaseCollector):
             return False
 
     def on_message(self, client, userdata, msg):
+        # We can receive both protobuf messages and JSON messages. We try to parse it as JSON and if it fails and the topic matches to /up, it's a protobuf instead
+        is_protobuf_message= False
+
         if self.being_tested:
             return
 
@@ -141,33 +191,43 @@ class LoraServerIOCollector(BaseCollector):
             # print("Topic %s Packet %s"%(msg.topic, msg.payload))
             # If message cannot be decoded as json, skip it
             mqtt_messsage = json.loads(msg.payload.decode("utf-8"))
+
         except Exception as e:
             # First, check if we had a prev_packet. If so, first save it
             if client.prev_packet is not None:
                 client.packet_writter_message['packet'] = client.prev_packet
-
                 save(client.packet_writter_message, client.data_collector_id)
-
                 # Reset vars
                 client.packet_writter_message = self.init_packet_writter_message()
                 client.prev_packet = None
+            
+            # If failed to decode message, then it's probably protobuf. To make sure, check the /up topic
+            search = re.search('gateway/(.*)?/*', msg.topic)
+            if search is not None and search.group(0)[-2:] in ["up"]:
+                try:
+                    uplink= api.UplinkFrame()
+                    uplink.ParseFromString(msg.payload)
+                    mqtt_messsage= json.loads(MessageToJson(uplink))
+                    is_protobuf_message= True
+                except Exception as e:
+                    self.log.error(f'Error parsing protobuf: {e}. Protobuf message: {msg.payload}')
+            else:
+                # Save this message an topic into MQ
+                client.packet_writter_message['messages'].append(
+                    {
+                        'topic': msg.topic,
+                        'message': msg.payload.decode("utf-8"),
+                        'data_collector_id': client.data_collector_id
+                    }
+                )
+                save(client.packet_writter_message, client.data_collector_id)
 
-            # Save this message an topic into MQ
-            client.packet_writter_message['messages'].append(
-                {
-                    'topic': msg.topic,
-                    'message': msg.payload.decode("utf-8"),
-                    'data_collector_id': client.data_collector_id
-                }
-            )
-            save(client.packet_writter_message, client.data_collector_id)
+                # Reset packet_writter_message
+                client.packet_writter_message = self.init_packet_writter_message()
 
-            # Reset packet_writter_message
-            client.packet_writter_message = self.init_packet_writter_message()
-
-            self.log.debug(f'[SKIPPED] Topic: {msg.topic}. Message received: {msg.payload}')
-            save_parsing_error(collector_id=client.data_collector_id, message=str(e))
-            return
+                self.log.debug(f'[SKIPPED] Topic: {msg.topic}. Message received: {msg.payload}')
+                save_parsing_error(collector_id=client.data_collector_id, message=str(e))
+                return
 
         try:
             standard_packet = {}
@@ -196,56 +256,58 @@ class LoraServerIOCollector(BaseCollector):
 
             # From topic gateway/gw_id/tx or gateway/gw_id/tx
             search = re.search('gateway/(.*)?/*', msg.topic)
-            if search is not None and (search.group(0)[-2:] == "rx" or search.group(0)[-2:] == "tx"):
-
+            if search is not None and search.group(0)[-2:] in ["rx", "tx", "up"]:
+                
                 if 'phyPayload' in mqtt_messsage:
-
                     # PHYPayload shouldn't exceed 255 bytes by definition. In DB we support 300 bytes
                     if len(mqtt_messsage['phyPayload']) > 300:
                         return
-
                     # Parse the base64 PHYPayload
-                    standard_packet = phy_parser.setPHYPayload(mqtt_messsage.get('phyPayload', None))
+                    standard_packet = phy_parser.setPHYPayload(mqtt_messsage.get('phyPayload'))
                     # Save the PHYPayload
-                    standard_packet['data'] = mqtt_messsage.get('phyPayload', None)
+                    standard_packet['data'] = mqtt_messsage.get('phyPayload')
 
-                if search.group(0)[-2:] == 'rx':
-                    rx_info = mqtt_messsage.get('rxInfo', None)
+                if is_protobuf_message:
+                    if 'rxInfo' in mqtt_messsage:
+                        x_info = mqtt_messsage.get('rxInfo')
+                        standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayID')).hex()
+                        standard_packet['chan'] = x_info.get('channel')
+                        standard_packet['rfch'] = x_info.get('rfChain')
+                        standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
+                        standard_packet['rssi'] = x_info.get('rssi')
+                        standard_packet['lsnr'] = x_info.get('loRaSNR')
+                        standard_packet['size'] = x_info.get('size')      
 
-                    standard_packet['tmst'] = rx_info.get('timestamp', None)
+                    if 'txInfo' in mqtt_messsage:    
+                        x_info = mqtt_messsage.get('txInfo')
+                        standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
+                        lora_modulation_info= x_info.get('loRaModulationInfo')
+                        standard_packet['datr'] = json.dumps({"spread_factor": lora_modulation_info.get('spreadingFactor'),
+                                                        "bandwidth": lora_modulation_info.get('bandwidth')})
+                        standard_packet['codr'] = lora_modulation_info.get('codeRate')
+                else:
+                    if 'rxInfo' in mqtt_messsage:
+                        x_info = mqtt_messsage.get('rxInfo')
+                        standard_packet['chan'] = x_info.get('channel')
+                        standard_packet['rfch'] = x_info.get('rfChain')
+                        standard_packet['stat'] = x_info.get('crcStatus')
+                        standard_packet['codr'] = x_info.get('codeRate')
+                        standard_packet['rssi'] = x_info.get('rssi')
+                        standard_packet['lsnr'] = x_info.get('loRaSNR')
+                        standard_packet['size'] = x_info.get('size')                  
 
-                    if rx_info.get('frequency') is not None:
-                        standard_packet['freq'] = rx_info.get('frequency', None) / 1000000
-
-                    standard_packet['chan'] = rx_info.get('channel', None)
-                    standard_packet['rfch'] = rx_info.get('rfChain', None)
-                    standard_packet['stat'] = rx_info.get('crcStatus', None)
-                    standard_packet['codr'] = rx_info.get('codeRate', None)
-                    standard_packet['rssi'] = rx_info.get('rssi', None)
-                    standard_packet['lsnr'] = rx_info.get('loRaSNR', None)
-                    standard_packet['size'] = rx_info.get('size', None)
-                    standard_packet['gateway'] = rx_info.get('mac', None)
-
-                    data_rate = rx_info.get('dataRate', None)
-                    standard_packet['modu'] = data_rate.get('modulation', None)
-                    standard_packet['datr'] = json.dumps({"spread_factor": data_rate.get('spreadFactor', None),
-                                                          "bandwidth": data_rate.get('bandwidth', None)})
-
-                elif search.group(0)[-2:] == 'tx':
-                    tx_info = mqtt_messsage.get('txInfo', None)
-
-                    standard_packet['tmst'] = tx_info.get('timestamp', None)
-
-                    if tx_info.get('frequency') is not None:
-                        standard_packet['freq'] = tx_info.get('frequency', None) / 1000000
-
-                    standard_packet['gateway'] = tx_info.get('mac', None)
-
-                    data_rate = tx_info.get('dataRate', None)
-                    standard_packet['modu'] = data_rate.get('modulation', None)
-                    standard_packet['datr'] = json.dumps({"spread_factor": data_rate.get('spreadFactor', None),
-                                                          "bandwidth": data_rate.get('bandwidth', None)})
-
+                    if 'txInfo' in mqtt_messsage:
+                        x_info= mqtt_messsage.get('txInfo')
+                        
+                    standard_packet['tmst'] = x_info.get('timestamp')    
+                    standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
+                    standard_packet['gateway'] = x_info.get('mac')
+                    
+                    data_rate= x_info.get('dataRate')
+                    standard_packet['modu'] = data_rate.get('modulation')
+                    standard_packet['datr'] = json.dumps({"spread_factor": data_rate.get('spreadFactor'),
+                                                        "bandwidth": data_rate.get('bandwidth')})
+                                                    
                 # Add missing fields, independant from type of packet
                 standard_packet['topic'] = msg.topic
                 standard_packet['date'] = datetime.now().__str__()
@@ -277,14 +339,15 @@ class LoraServerIOCollector(BaseCollector):
                         client.packet_writter_message['messages'].append(
                             {
                                 'topic': msg.topic,
-                                'message': msg.payload.decode("utf-8"),
+                                'message': json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8"),
                                 'data_collector_id': client.data_collector_id
                             }
                         )
                 else:
                     self.log.debug('Unhandled situation')
 
-                self.log.debug('Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8")))
+                self.log.debug('Topic: {0}. Message received: {1}'.format(msg.topic, json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8")))
+
                 self.last_seen = datetime.now()
 
             # From topic application/*/device/*/rx or application/*/node/*/rx
@@ -301,7 +364,7 @@ class LoraServerIOCollector(BaseCollector):
 
                     if standard_packet['f_count'] == mqtt_messsage.get('fCnt', None):
                         # Set location and gw name if given
-                        if len(mqtt_messsage.get('rxInfo', None)) > 0:
+                        if 'rxInfo' in mqtt_messsage:
                             location = mqtt_messsage.get('rxInfo', None)[0].get('location', None)
 
                             if location:
@@ -311,7 +374,7 @@ class LoraServerIOCollector(BaseCollector):
 
                             gw_name= mqtt_messsage.get('rxInfo')[0].get('name')
                             if gw_name:
-                                standard_packet['gw_name']= gw_name
+                                standard_packet['gw_name'] = gw_name
 
                                 # Make sure we've matched the same device
                         if 'dev_eui' in standard_packet and standard_packet['dev_eui'] is not None and standard_packet[
@@ -333,7 +396,7 @@ class LoraServerIOCollector(BaseCollector):
 
                 self.log.debug('Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8")))
                 self.last_seen = datetime.now()
-
+            
             else:
                 self.log.debug('[SKIPPED] Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8")))
 
@@ -370,7 +433,7 @@ class LoraServerIOCollector(BaseCollector):
                 client.packet_writter_message['messages'].append(
                     {
                         'topic': msg.topic,
-                        'message': msg.payload.decode("utf-8"),
+                        'message': json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8"),
                         'data_collector_id': client.data_collector_id
                     }
                 )
@@ -382,9 +445,9 @@ class LoraServerIOCollector(BaseCollector):
 
         except Exception as e:
             self.log.error("Error creating Packet in LoraServerIOCollector:", e, "Topic: ", msg.topic, "Message: ",
-                      msg.payload.decode("utf-8"))
+                      json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8"))
             traceback.print_exc(file=sys.stdout)
-            save_parsing_error(client.data_collector_id, msg.payload.decode("utf-8"))
+            save_parsing_error(client.data_collector_id, json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8"))
 
     def on_connect(self, client, userdata, flags, rc):
         # If this connection is a test, activate the flag and emit the event
@@ -405,6 +468,14 @@ class LoraServerIOCollector(BaseCollector):
             self.connected = "DISCONNECTED"
             self.log.info("Unexpected disconnection.")
 
+def get_crc_status_integer(status_string):
+    # This mapping is in https://github.com/brocaar/chirpstack-api/blob/master/protobuf/gw/gw.proto
+    if status_string=='CRC_OK':
+        return 1
+    elif status_string=='BAD_CRC':
+        return -1
+    elif status_string=='NO_CRC':
+        return 0
 
 if __name__ == '__main__':
     from auditing.db.Models import DataCollector, DataCollectorType, Organization, commit, rollback
