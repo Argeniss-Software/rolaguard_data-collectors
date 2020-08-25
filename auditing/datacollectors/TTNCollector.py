@@ -318,9 +318,7 @@ class TTNCollector(BaseCollector):
         return ses if res.status_code == 200 else None
 
     def fetch_access_token(self, ses):
-        self.log.info(f'ses cookies: {str(ses.cookies)}')
         res = ses.get(access_token_url, timeout=30)
-        self.log.info(f'res: {str(res)}')
         return res.json()
 
     def schedule_refresh_token(self, ws, session, first_expires):
@@ -349,7 +347,6 @@ class TTNCollector(BaseCollector):
                 access_token = data_access.get('access_token')
                 expires = data_access.get('expires')
                 ws.access_token = access_token
-                self.log.info(f"access token: {access_token}")
                 ws.send('["token:' + access_token + '"]')
                 connection_attempts= 0
             except Exception as exc:
