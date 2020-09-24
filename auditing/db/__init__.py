@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
 import os
 
 
@@ -10,34 +9,23 @@ DB_USERNAME = os.environ["DB_USERNAME"]
 DB_PASSWORD = os.environ["DB_PASSWORD"] 
 DB_PORT = os.environ["DB_PORT"] 
 
-engine = create_engine('postgresql+psycopg2://{user}:{pw}@{url}:{port}/{db}'.format(user=DB_USERNAME, pw=DB_PASSWORD, url=DB_HOST, port= DB_PORT, db=DB_NAME))
-# If you'd like to use sqlite <---
+engine = create_engine('postgresql+psycopg2://{user}:{pw}@{url}:{port}/{db}'.\
+    format(user=DB_USERNAME, pw=DB_PASSWORD, url=DB_HOST, port=DB_PORT, db=DB_NAME))
 
-
-# Uncomment these lines if you want to work with sqlite instead of postgres
-# engine = create_engine('sqlite:///orm_in_detail.sqlite')
-# os.environ["ENVIRONMENT"] = "DEV"
-
-Base = declarative_base()
 sessionBuilder = sessionmaker()
 sessionBuilder.configure(bind=engine)
 session = sessionBuilder()
 
-from auditing.db.Models import AlertType, RowProcessed, rollback
-import logging
+def commit():
+    session.commit()
 
-if os.environ.get("ENVIRONMENT") == "DEV":
-    logging.getLogger().setLevel(logging.DEBUG)
-else:
-    logging.getLogger().setLevel(logging.INFO)
+def begin():
+    session.begin()
 
-try:
-    if RowProcessed.count() == 0:
-        RowProcessed(last_row= 0, analyzer= 'bruteforcer').save_and_flush()
-        RowProcessed(last_row= 0, analyzer= 'packet_analyzer').save_and_flush()
-        RowProcessed(last_row= 0, analyzer= 'printer').save_and_flush()
+def rollback():
+    session.rollback()
 
-except Exception as exc:
-    logging.error(f'Error at commit when initializing: {exc}')
-    logging.info('Rolling back the session')
-    rollback()
+
+from .DataCollector import DataCollector
+from .DataCollectorType import DataCollectorType
+from .Organization import Organization

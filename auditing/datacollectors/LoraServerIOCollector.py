@@ -250,8 +250,6 @@ class LoraServerIOCollector(BaseCollector):
                 # Reset packet_writter_message
                 client.packet_writter_message = self.init_packet_writter_message()
 
-                self.log.debug('Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8")))
-
                 return
 
             # From topic gateway/gw_id/tx or gateway/gw_id/tx
@@ -345,9 +343,6 @@ class LoraServerIOCollector(BaseCollector):
                         )
                 else:
                     self.log.debug('Unhandled situation')
-
-                self.log.debug('Topic: {0}. Message received: {1}'.format(msg.topic, json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8")))
-
                 self.last_seen = datetime.now()
 
             # From topic application/*/device/*/rx or application/*/node/*/rx
@@ -394,12 +389,9 @@ class LoraServerIOCollector(BaseCollector):
                             standard_packet['app_name'] = client.devices_map[standard_packet['dev_addr']]['app_name']
                             standard_packet['dev_name'] = client.devices_map[standard_packet['dev_addr']]['dev_name']
 
-                self.log.debug('Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8")))
                 self.last_seen = datetime.now()
             
             else:
-                self.log.debug('[SKIPPED] Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8")))
-
                 # First, check if we had a prev_packet. If so, first save it
                 if client.prev_packet is not None and len(standard_packet) == 0:
                     client.packet_writter_message['packet'] = client.prev_packet
