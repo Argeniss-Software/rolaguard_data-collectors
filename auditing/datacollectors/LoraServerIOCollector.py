@@ -343,7 +343,6 @@ class LoraServerIOCollector(BaseCollector):
                         )
                 else:
                     self.log.debug('Unhandled situation')
-
                 self.last_seen = datetime.now()
 
             # From topic application/*/device/*/rx or application/*/node/*/rx
