@@ -368,14 +368,12 @@ class LoraServerIOCollector(BaseCollector):
                                 standard_packet['altitude'] = location.get('altitude', None)
 
                             gw_name= mqtt_messsage.get('rxInfo')[0].get('name')
-                            if gw_name:
-                                standard_packet['gw_name'] = gw_name
+                            standard_packet['gw_name'] = gw_name if gw_name else None
 
-                                # Make sure we've matched the same device
+                        # Make sure we've matched the same device
                         if 'dev_eui' in standard_packet and standard_packet['dev_eui'] is not None and standard_packet[
                             'dev_eui'] != search.group(1):
-                            self.log.warning("There's an error with LoraServerIODC logic")
-                            exit(0)
+                            self.log.error("There's an error with Chirsptack collector logic")
 
                         # Get dev_eui, app_name and dev_name from message
                         device_info = {'app_name': mqtt_messsage.get('applicationName', None),
@@ -436,7 +434,7 @@ class LoraServerIOCollector(BaseCollector):
                 client.packet_writter_message = self.init_packet_writter_message()
 
         except Exception as e:
-            self.log.error("Error creating Packet in LoraServerIOCollector:", e, "Topic: ", msg.topic, "Message: ",
+            self.log.error("Error creating Packet in Chirpstack collector:", e, "Topic: ", msg.topic, "Message: ",
                       json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8"))
             traceback.print_exc(file=sys.stdout)
             save_parsing_error(client.data_collector_id, json.dumps(mqtt_messsage) if is_protobuf_message else msg.payload.decode("utf-8"))
