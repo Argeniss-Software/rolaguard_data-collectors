@@ -144,7 +144,6 @@ class TTNCollector(BaseCollector):
         return True
         
         # if not self.has_to_parse:
-        #     self.log.debug('message does not include physical payload')
         #     return True  # NOT SURE if this should be True or False
 
         # phyPayload = msg.get('payload', None)
@@ -163,10 +162,7 @@ class TTNCollector(BaseCollector):
             return
 
         # The contents of many messages is an 'h'. We don't want to print that.
-        if len(raw_message) > 1:
-            self.log.debug("Message: {}".format(raw_message))
-        else:
-            self.log.debug('Message len <= 1, skipping')
+        if len(raw_message) <= 1:
             return
 
         # Retry after disconnection. End thread refreshing token before
@@ -174,9 +170,7 @@ class TTNCollector(BaseCollector):
             self.log.info(f"DataCollector {self.data_collector_id}: Disconnected by server. Reconnecting.")
             ws.close()
             ws.is_closed= True
-            self.log.debug(f"DataCollector {self.data_collector_id}: Joining refresh token thread.")
             self.refresh_token_thread.join()
-            self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token thread joined.")
             self.connect()
 
         # Remove data format stuff
@@ -200,7 +194,7 @@ class TTNCollector(BaseCollector):
         if not self.verified:
             # TTN collectors only verify the physical payload, which is only parsed if has_to_parse is True
             if not self.verify_message(message):
-                self.log.debug("Collector is not yet verified, skipping message\n")
+                self.log.debug(f"Collector is not yet verified ({self.verified_packets} verified), skipping message\n")
                 return
 
         # message processing
@@ -272,8 +266,6 @@ class TTNCollector(BaseCollector):
             # Save the packet
             save(ws.packet_writter_message, ws.data_collector_id)
 
-            self.log.debug(f'Message received from TTN saved in DB: {ws.packet_writter_message}.')
-
             # Reset this variable
             ws.packet_writter_message = self.init_packet_writter_message()
 
@@ -294,7 +286,7 @@ class TTNCollector(BaseCollector):
     def on_close(self, ws):  # similar to on_disconnect
         ws.close()
         ws.is_closed = True
-        self.log.info(f"Disconnected to gw: {ws.gateway_id}")
+        self.log.info(f"Disconnected to gw: {ws.gateway}")
 
     def on_open(self, ws):  # similar to on_connect
         # If this connection is a test, activate the flag and emit the event
@@ -334,9 +326,6 @@ class TTNCollector(BaseCollector):
 
             if expires:
                 expire_dt = datetime.fromtimestamp((expires / 1000)-900) # Converted from ms to seconds and substracted 15 min
-                self.log.info(f"expires: {str(expires)}")
-                self.log.debug(f"DataCollector {self.data_collector_id}: Refresh token in {(expire_dt - datetime.now()).seconds} seconds")
-                self.log.debug(f"WS is closed: {str(ws.is_closed)}")
 
                 if first_expires:
                     first_expires=None
