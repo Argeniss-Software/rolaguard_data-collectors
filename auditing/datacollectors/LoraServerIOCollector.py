@@ -147,7 +147,6 @@ class LoraServerIOCollector(BaseCollector):
     def verify_payload(self, msg):
         search = re.search('gateway/(.*)?/*', msg.topic)
         if search is None or (search.group(0)[-2:] not in ["rx", "tx"]):
-            self.log.debug('topic does not include physical payload')
             return True  # NOT SURE if this should be True or False
 
         # try to decode payload as utf-8
@@ -184,7 +183,6 @@ class LoraServerIOCollector(BaseCollector):
 
         if not self.verified:
             if not self.verify_message(msg):
-                self.log.debug("Collector is not yet verified, skipping message")
                 return
 
         try:
@@ -225,7 +223,6 @@ class LoraServerIOCollector(BaseCollector):
                 # Reset packet_writter_message
                 client.packet_writter_message = self.init_packet_writter_message()
 
-                self.log.debug(f'[SKIPPED] Topic: {msg.topic}. Message received: {msg.payload}')
                 save_parsing_error(collector_id=client.data_collector_id, message=str(e))
                 return
 
@@ -341,8 +338,6 @@ class LoraServerIOCollector(BaseCollector):
                                 'data_collector_id': client.data_collector_id
                             }
                         )
-                else:
-                    self.log.debug('Unhandled situation')
                 self.last_seen = datetime.now()
 
             # From topic application/*/device/*/rx or application/*/node/*/rx
@@ -578,7 +573,6 @@ if __name__ == '__main__':
         time.sleep(5)
         try:
             commit()
-            self.log.debug('Commit done!')
         except Exception as exc:
             self.log.error('Error at commit:' + str(exc))
             self.log.info('Rolling back the session')
