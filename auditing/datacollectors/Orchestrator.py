@@ -22,17 +22,16 @@ collectors = []
 
 
 def main():
-    LOG.debug('Starting Orchestrator')
+    LOG.info('Starting Orchestrator')
     data_collectors = []
 
     try:
-        LOG.debug('Fetching collectors from backend')
         data_collectors = fetch_data_collectors()
     except Exception as exc:
         LOG.error('Something went wrong fetching data collectors.' + str(exc))
         exit(-1)
 
-    LOG.debug(f"Found {len(data_collectors)} data collectors")
+    LOG.info(f"Found {len(data_collectors)} data collectors")
     rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"], os.environ["RABBITMQ_DEFAULT_PASS"])
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(host=os.environ["RABBITMQ_HOST"], port=int(os.environ["RABBITMQ_PORT"]),
@@ -40,8 +39,7 @@ def main():
     channel = connection.channel()
 
     for dc in data_collectors:
-        collector = create_collector(dc)
-        if collector:
+        for collector in create_collector(dc):
             if dc.get('status') != 'DISABLED':
                 
                 # Sending this event is confusing for the user because it shows a
@@ -61,9 +59,7 @@ def main():
                 #         e) + "Collector ID: " + str(collector.data_collector_id))
 
                 collector.connect()
-
             collectors.append(collector)
-
     connection.close()
 
     thread = Thread(target=check_data_collectors_status)
@@ -140,7 +136,6 @@ def check_data_collectors_status():
 def handle_events(ch, method, properties, body):
     try:
         event = json.loads(body.decode('utf-8'))
-        LOG.debug("New event on {queue}: {event}".format(queue='data_collectors_status_events', event=event))
     except Exception as exc:
         LOG.error("Couldn\'t deserialize event. Exception: {0}".format(exc))
         return
@@ -150,19 +145,18 @@ def handle_events(ch, method, properties, body):
 
     if event_type == 'CREATED':
         try:
-            collector = create_collector(event.get('data'))
-            collector.connect()
-            collectors.append(collector)
-            collectors_dict_connected[data_collector_id] = 'DISCONNECTED'
-            collectors_dict_verified[data_collector_id] = False
+            for collector in create_collector(event.get('data')):
+                collector.connect()
+                collectors.append(collector)
+                collectors_dict_connected[data_collector_id] = 'DISCONNECTED'
+                collectors_dict_verified[data_collector_id] = False
 
         except Exception as exc:
             LOG.error("Error when create new Collector. Exception: {0}".format(exc))
 
     elif event_type == 'DELETED':
         try:
-            collector = next(c for c in collectors if c.data_collector_id == data_collector_id)
-            if collector:
+            for collector in [c for c in collectors if c.data_collector_id == data_collector_id]:
                 collector.disconnect()
                 collectors.remove(collector)
 
@@ -175,8 +169,7 @@ def handle_events(ch, method, properties, body):
 
     elif event_type == 'ENABLED':
         try:
-            collector = next(c for c in collectors if c.data_collector_id == data_collector_id)
-            if collector:
+            for collector in [c for c in collectors if c.data_collector_id == data_collector_id]:
                 collector.connect()
                 collector.disabled = False
             collectors_dict_connected[data_collector_id] = 'DISCONNECTED'
@@ -187,19 +180,13 @@ def handle_events(ch, method, properties, body):
         disable_collector(data_collector_id)
 
     elif event_type == 'UPDATED':
-        collector = next(c for c in collectors if c.data_collector_id == data_collector_id)
         close_connection(data_collector_id)
-
-        if collector:
+        disabled = False
+        for collector in  [c for c in collectors if c.data_collector_id == data_collector_id]:
             collector.disconnect()
-            disabled = collector.disabled
+            disabled = disabled or collector.disabled
             collectors.remove(collector)
-        else:
-            disabled = False
 
-        collector = create_collector(event.get('data'))
-        if collector == None:
-            LOG.error("Cannot UPDATE collector ID: {0}".format(event.get('data').get('id')))
 
         event = {
             "data_collector_id": data_collector_id,
@@ -221,16 +208,16 @@ def handle_events(ch, method, properties, body):
                 "Error when sending status update to queue in UPDATE event: " + str(e) + "Collector ID: " + str(
                     data_collector_id))
 
-        if not disabled:
-            collector.connect()
-            collectors_dict_connected[data_collector_id] = 'DISCONNECTED'
-
-        collectors.append(collector)
+        for collector in create_collector(event.get('data')):
+            if not disabled:
+                collector.connect()
+                collectors_dict_connected[data_collector_id] = 'DISCONNECTED'
+            collectors.append(collector)
 
     elif event_type == 'TEST':
         try:
-            collector = create_collector(event.get('data'))
-            collector.test()
+            for collector in create_collector(event.get('data')):
+                collector.test()
 
         except Exception as exc:
             LOG.error("Error when testing Collector. Exception: %s" % (exc))
@@ -242,8 +229,7 @@ def handle_events(ch, method, properties, body):
 
 def disable_collector(data_collector_id):
     try:
-        collector = next(c for c in collectors if c.data_collector_id == data_collector_id)
-        if collector:
+        for collector in [c for c in collectors if c.data_collector_id == data_collector_id]:
             collector.disconnect()
             collector.disabled = True
         del collectors_dict_connected[data_collector_id]
@@ -264,34 +250,40 @@ def create_collector(dc):
 
     type = dc.get('type').get('type')
     LOG.debug(f"Creating collector of type {type}")
-    collector = None
+    collectors = []
 
     if type == 'chirpstack_collector':
-        collector = LoraServerIOCollector(
-            data_collector_id=dc.get('id'),
-            organization_id=dc.get('organization_id'),
-            host=dc.get('ip'),
-            port=int(dc.get('port')),
-            ssl=dc.get('ssl'),
-            user=dc.get('user'),
-            password=dc.get('password'),
-            last_seen=dc.get('last_seen'),
-            connected=dc.get('connected'),
-            topics=topics,
-            verified=dc.get('verified'))
+        collectors.append(
+            LoraServerIOCollector(
+                data_collector_id=dc.get('id'),
+                organization_id=dc.get('organization_id'),
+                host=dc.get('ip'),
+                port=int(dc.get('port')),
+                ssl=dc.get('ssl'),
+                user=dc.get('user'),
+                password=dc.get('password'),
+                last_seen=dc.get('last_seen'),
+                connected=dc.get('connected'),
+                topics=topics,
+                verified=dc.get('verified')
+                )
+        )
     elif type == 'ttn_collector':
-        collector = TTNCollector(
-            data_collector_id=dc.get('id'),
-            organization_id=dc.get('organization_id'),
-            user=dc.get('user'),
-            password=dc.get('password'),
-            gateway_id=dc.get('gateway_id'),
-            verified=dc.get('verified'))
+        gateways = [gw.strip() for gw in dc['gateway_id'].split(",")]
+        for gw in gateways:
+            collectors.append(
+                TTNCollector(
+                    data_collector_id=dc.get('id'),
+                    organization_id=dc.get('organization_id'),
+                    user=dc.get('user'),
+                    password=dc.get('password'),
+                    gateway_id=gw,
+                    verified=dc.get('verified')
+                )
+            )
     else:
         LOG.error('Unknown/unsupported Data Collector Type: {0}'.format(type))
-        collector = None
-
-    return collector
+    return collectors
 
 
 def fetch_data_collectors():
