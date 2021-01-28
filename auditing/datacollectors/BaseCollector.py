@@ -28,6 +28,7 @@ class BaseCollector:
     # region verified property
     def setverified(self, value):
         self.__verified = value
+
         if self.verification_timer:
             self.verification_timer.cancel()
         self.verified_changed = True
@@ -42,6 +43,7 @@ class BaseCollector:
     def verify_timeout(self):
         # if the collector was verified, the timer should have been cancelled.
         # Even if it was not cancelled, it will do nothing
+
         if not self.verified:
             self.disconnect()
             self.disabled = True
@@ -68,6 +70,7 @@ class BaseCollector:
         # Try to connect the collector as in regular scenario
         self.connect()
         timeout = datetime.now() + timedelta(seconds=30)
+
         while not self.stop_testing and datetime.now() < timeout:
             sleep(1)
         self.disconnect()
@@ -85,19 +88,25 @@ class BaseCollector:
         if ratio verified_packets/total_packets > verification_threshold, sets verified=True
         """
         self.total_packets += 1
+
         if not self.verify_payload(msg):
             self.log.error("PHY payload could not be verified")
+
             return False
 
         if not self.verify_topics(msg):
             self.log.error("Topic is not usable")
+
             return False
 
         self.verified_packets += 1
+
         if self.total_packets >= self.minimum_packets \
                 and (self.verified_packets / self.total_packets) > self.verification_threshold:
             self.verified = True
+
             return True
+
         return False
 
     def verify_payload(self, msg):
