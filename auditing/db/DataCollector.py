@@ -1,6 +1,6 @@
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, String, BigInteger, Boolean, ForeignKey, func, Enum as SQLEnum
+from sqlalchemy import Column, DateTime, String, BigInteger, Boolean, ForeignKey, func, Enum as SQLEnum, Text
 from auditing.db import session
 from sqlalchemy.dialects import postgresql, sqlite
 
@@ -27,6 +27,9 @@ class DataCollector(Base):
     user = Column(String(120), nullable=False)
     password = Column(String(120), nullable=False)
     ssl = Column(Boolean, nullable=True)
+    ca_cert  =Column(Text, nullable=True)
+    client_cert = Column(Text, nullable=True)
+    client_key = Column(Text, nullable=True)
     gateway_id = Column(String(100), nullable=True)
     organization_id = Column(BigInteger, ForeignKey("organization.id"), nullable=False)
     policy_id = Column(BigInteger, ForeignKey("policy.id"), nullable=False)
@@ -37,12 +40,14 @@ class DataCollector(Base):
     @classmethod
     def find_one_by_ip_port_and_dctype_id(cls, dctype_id, ip, port):
         return session.query(cls).filter(cls.ip == ip).filter(cls.data_collector_type_id == dctype_id).filter(cls.port == port).first()
-    
+
     @classmethod
     def find_one(cls, id=None):
         query = session.query(cls)
+
         if id:
             query = query.filter(cls.id == id)
+
         return query.first()
 
     @classmethod

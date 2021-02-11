@@ -10,6 +10,7 @@ import time
 import paho.mqtt.client as mqtt
 import chirpstack_api.gw.gw_pb2 as api
 import base64
+import tempfile
 
 from auditing import iot_logging
 from time import sleep
@@ -27,17 +28,17 @@ class LoraServerIOCollector(BaseCollector):
     """
     This collector establishes a connection to a MQTT broker. Thus, we're using the paho mqtt client.
 
-    Once we are connected to the broker, the most important function is on_message(). There are two 
+    Once we are connected to the broker, the most important function is on_message(). There are two
     topics that provide the most valuable information: */gateway/* and */application/*.
-    
+
     The topic */gateway/* provides the packets in B64 format (PHYPayload) and also TX/RX metadata. Nevertheless,
-    there's rich metadata such as AppName, DeviceName, GatewayName, etc that's not in this topic. To fetch this 
+    there's rich metadata such as AppName, DeviceName, GatewayName, etc that's not in this topic. To fetch this
     data we need to read the topic */application/*.
 
-    The topic */application/*, besides to providing the AppName, DeviceName, GatewayName, gives us the 
+    The topic */application/*, besides to providing the AppName, DeviceName, GatewayName, gives us the
     association between DevAddr and DevEUI.
 
-    So, the 'packet' object sent to the DB could be formed with data from a gateway/* topic message and an 
+    So, the 'packet' object sent to the DB could be formed with data from a gateway/* topic message and an
     application/* topic message (the later is a complement, not required). The gateway/* topic message will
     always generate a 'packet' object.
 
@@ -47,24 +48,24 @@ class LoraServerIOCollector(BaseCollector):
         MQTT queue
         b- Otherwise, we store the prev_packet with the hope that an application/* message comes after
     2- After, we might receive an application/* topic message. In case we have a prev_packet, the DevAddr in
-    both messages match, and the counter is the same (meaning both MQTT messages originated from the same message), 
-    we save this metadata and put it into the prev_packet which is then sent into the MQTT. 
+    both messages match, and the counter is the same (meaning both MQTT messages originated from the same message),
+    we save this metadata and put it into the prev_packet which is then sent into the MQTT.
 
     ****Further considerations for the */gateway/* topic****
-    Depending on how's configured the Chirsptack infrastructure, messages in the */gateway/* topic can have 
+    Depending on how's configured the Chirsptack infrastructure, messages in the */gateway/* topic can have
     JSON or protobuf encoding.
 
-    An observed rule is: 
-    * If message cannot be decoded to JSON and the topic ends in 'up', it's a protobuf message. 
+    An observed rule is:
+    * If message cannot be decoded to JSON and the topic ends in 'up', it's a protobuf message.
     * Otherwise, the message can be decoded to JSON and topic ends in 'rx' or 'tx'.
 
-    If we receive a protobuf message, it usually comes with both rx and tx data. Otherwise, this data comes in 
-    separated messages. It might happend that in an 'up' message, we don't receive as many fields as in JSON 
+    If we receive a protobuf message, it usually comes with both rx and tx data. Otherwise, this data comes in
+    separated messages. It might happend that in an 'up' message, we don't receive as many fields as in JSON
     messages.
     """
 
     def __init__(self, data_collector_id, organization_id, host, port, ssl, user, password, topics, last_seen,
-                 connected, verified):
+                 connected, verified, ca_cert, client_cert, client_key):
         super().__init__(data_collector_id=data_collector_id, organization_id=organization_id, verified=verified)
         self.host = host
         self.port = port
@@ -83,12 +84,45 @@ class LoraServerIOCollector(BaseCollector):
         # Flag for testing the collector
         self.being_tested = False
 
+        # client tls certificates for mqtt
+        self.ca_cert = None
+        self.client_cert = None
+        self.client_key = None
+        self.ca_cert_file = tempfile.NamedTemporaryFile()
+        self.client_cert_file = tempfile.NamedTemporaryFile()
+        self.client_key_file = tempfile.NamedTemporaryFile()
+
+        if ca_cert is not None:
+            self.ca_cert_file.write(ca_cert.encode('ascii'))
+            self.ca_cert_file.flush()
+            self.ca_cert = self.ca_cert_file.name
+
+        if client_cert is not None:
+            self.client_cert_file.write(client_cert.encode('ascii'))
+            self.client_cert_file.flush()
+            self.client_cert = self.client_cert_file.name
+
+        if client_key is not None:
+            self.client_key_file.write(client_key.encode('ascii'))
+            self.client_key_file.flush()
+            self.client_key = self.client_key_file.name
+
+
     def connect(self):
         super(LoraServerIOCollector, self).connect()
+
         if self.mqtt_client:
             print('Existing connection')
         else:
             self.mqtt_client = mqtt.Client()
+
+            if self.ca_cert is not None:
+                tls = {
+                    'ca_certs': self.ca_cert,
+                    'keyfile': self.client_key,
+                    'certfile' :self.client_cert
+                }
+                self.mqtt_client.tls_set(**tls)
             self.mqtt_client.organization_id = self.organization_id
             self.mqtt_client.data_collector_id = self.data_collector_id
             self.mqtt_client.host = self.host
@@ -99,11 +133,11 @@ class LoraServerIOCollector(BaseCollector):
             self.mqtt_client.on_message = lambda client, userdata, msg: self.on_message(client, userdata, msg)
             self.mqtt_client.on_disconnect = lambda client, userdata, rc: self.on_disconnect(client, userdata, rc)
             self.mqtt_client.reconnect_delay_set(min_delay=10, max_delay=60)
-            
+
             if self.password and self.user:
                 self.log.info(f"Setting MQTT credentials for: {self.mqtt_client.host}")
                 self.mqtt_client.username_pw_set(self.user, self.password)
-            
+
             self.mqtt_client.connect_async(self.host, self.port, self.TIMEOUT)
 
             self.mqtt_client.prev_packet = self.prev_packet
@@ -126,6 +160,9 @@ class LoraServerIOCollector(BaseCollector):
         if self.mqtt_client:
             self.mqtt_client.disconnect()
             self.mqtt_client = None
+        self.ca_cert_file.close()
+        self.client_cert_file.close()
+        self.client_key_file.close()
         super(LoraServerIOCollector, self).disconnect()
 
     def reconnect(self):
@@ -137,8 +174,10 @@ class LoraServerIOCollector(BaseCollector):
 
         if re.search('gateway/(.*)?/*', msg.topic) is not None:
             return True
+
         if re.search('application/.*?/device/(.*)/rx', msg.topic) is not None:
             return True
+
         if re.search('application/.*?/node/(.*)/rx', msg.topic) is not None:
             return True
 
@@ -146,7 +185,10 @@ class LoraServerIOCollector(BaseCollector):
 
     def verify_payload(self, msg):
         search = re.search('gateway/(.*)?/*', msg.topic)
+
         if search is None or (search.group(0)[-2:] not in ["rx", "tx"]):
+            self.log.debug('topic does not include physical payload')
+
             return True  # NOT SURE if this should be True or False
 
         # try to decode payload as utf-8
@@ -154,24 +196,30 @@ class LoraServerIOCollector(BaseCollector):
             mqtt_messsage = json.loads(msg.payload.decode("utf-8"))
         except Exception as e:
             self.log.error(f'payload could not be decoded as utf8: {e}')
+
             return False
 
         # looks for phyPayload field in mqtt message
         phyPayload = mqtt_messsage.get('phyPayload', None)
+
         if not phyPayload:
             self.log.error('No phyPayload field in mqtt message')
+
             return False
 
         # PHYPayload shouldn't exceed 255 bytes by definition. In DB we support 300 bytes
+
         if len(phyPayload) > 300:
             return False
 
         # Parse the base64 PHYPayload
         try:
             phy_parser.setPHYPayload(phyPayload)
+
             return True
         except Exception as e:
             self.log.error(f'Error parsing physical payload: {e}')
+
             return False
 
     def on_message(self, client, userdata, msg):
@@ -183,6 +231,8 @@ class LoraServerIOCollector(BaseCollector):
 
         if not self.verified:
             if not self.verify_message(msg):
+                self.log.debug("Collector is not yet verified, skipping message")
+
                 return
 
         try:
@@ -192,15 +242,17 @@ class LoraServerIOCollector(BaseCollector):
 
         except Exception as e:
             # First, check if we had a prev_packet. If so, first save it
+
             if client.prev_packet is not None:
                 client.packet_writter_message['packet'] = client.prev_packet
                 save(client.packet_writter_message, client.data_collector_id)
                 # Reset vars
                 client.packet_writter_message = self.init_packet_writter_message()
                 client.prev_packet = None
-            
+
             # If failed to decode message, then it's probably protobuf. To make sure, check the /up topic
             search = re.search('gateway/(.*)?/*', msg.topic)
+
             if search is not None and search.group(0)[-2:] in ["up"]:
                 try:
                     uplink= api.UplinkFrame()
@@ -224,12 +276,14 @@ class LoraServerIOCollector(BaseCollector):
                 client.packet_writter_message = self.init_packet_writter_message()
 
                 save_parsing_error(collector_id=client.data_collector_id, message=str(e))
+
                 return
 
         try:
             standard_packet = {}
 
             # If it's a Join message, then associate DevEUI with DevAddr
+
             if msg.topic[-5:] == "/join":
                 device_info = {'dev_eui': mqtt_messsage.get('devEUI', None)}
                 client.devices_map[mqtt_messsage['devAddr']] = device_info
@@ -251,10 +305,12 @@ class LoraServerIOCollector(BaseCollector):
 
             # From topic gateway/gw_id/tx or gateway/gw_id/tx
             search = re.search('gateway/(.*)?/*', msg.topic)
+
             if search is not None and search.group(0)[-2:] in ["rx", "tx", "up"]:
-                
+
                 if 'phyPayload' in mqtt_messsage:
                     # PHYPayload shouldn't exceed 255 bytes by definition. In DB we support 300 bytes
+
                     if len(mqtt_messsage['phyPayload']) > 300:
                         return
                     # Parse the base64 PHYPayload
@@ -271,9 +327,9 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
                         standard_packet['rssi'] = x_info.get('rssi')
                         standard_packet['lsnr'] = x_info.get('loRaSNR')
-                        standard_packet['size'] = x_info.get('size')      
+                        standard_packet['size'] = x_info.get('size')
 
-                    if 'txInfo' in mqtt_messsage:    
+                    if 'txInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('txInfo')
                         standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
                         lora_modulation_info= x_info.get('loRaModulationInfo')
@@ -289,20 +345,20 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['codr'] = x_info.get('codeRate')
                         standard_packet['rssi'] = x_info.get('rssi')
                         standard_packet['lsnr'] = x_info.get('loRaSNR')
-                        standard_packet['size'] = x_info.get('size')                  
+                        standard_packet['size'] = x_info.get('size')
 
                     if 'txInfo' in mqtt_messsage:
                         x_info= mqtt_messsage.get('txInfo')
-                        
-                    standard_packet['tmst'] = x_info.get('timestamp')    
+
+                    standard_packet['tmst'] = x_info.get('timestamp')
                     standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
                     standard_packet['gateway'] = x_info.get('mac')
-                    
+
                     data_rate= x_info.get('dataRate')
                     standard_packet['modu'] = data_rate.get('modulation')
                     standard_packet['datr'] = json.dumps({"spread_factor": data_rate.get('spreadFactor'),
                                                         "bandwidth": data_rate.get('bandwidth')})
-                                                    
+
                 # Add missing fields, independant from type of packet
                 standard_packet['topic'] = msg.topic
                 standard_packet['date'] = datetime.now().__str__()
@@ -310,6 +366,7 @@ class LoraServerIOCollector(BaseCollector):
                 standard_packet['organization_id'] = client.organization_id
 
                 # Save prev_packet in case is not empty
+
                 if client.prev_packet is not None:
                     client.packet_writter_message['packet'] = client.prev_packet
                     save(client.packet_writter_message, client.data_collector_id)
@@ -319,10 +376,12 @@ class LoraServerIOCollector(BaseCollector):
                     client.packet_writter_message = self.init_packet_writter_message()
 
                 # Set the dev_eui and other information if available. Otherwise, save packet
+
                 if 'dev_addr' in standard_packet:
 
                     if standard_packet['dev_addr'] in client.devices_map:
                         standard_packet['dev_eui'] = client.devices_map[standard_packet['dev_addr']]['dev_eui']
+
                         if len(client.devices_map[standard_packet['dev_addr']]) > 1:
                             standard_packet['app_name'] = client.devices_map[standard_packet['dev_addr']]['app_name']
                             standard_packet['dev_name'] = client.devices_map[standard_packet['dev_addr']]['dev_name']
@@ -345,6 +404,7 @@ class LoraServerIOCollector(BaseCollector):
                     'application/.*?/node/(.*)/rx', msg.topic) is not None:
 
                 search = re.search('application/.*?/device/(.*)/rx', msg.topic)
+
                 if search is None:
                     search = re.search('application/.*?/node/(.*)/rx', msg.topic)
 
@@ -354,6 +414,7 @@ class LoraServerIOCollector(BaseCollector):
 
                     if standard_packet['f_count'] == mqtt_messsage.get('fCnt', None):
                         # Set location and gw name if given
+
                         if 'rxInfo' in mqtt_messsage:
                             location = mqtt_messsage.get('rxInfo', None)[0].get('location', None)
 
@@ -366,6 +427,7 @@ class LoraServerIOCollector(BaseCollector):
                             standard_packet['gw_name'] = gw_name if gw_name else None
 
                         # Make sure we've matched the same device
+
                         if 'dev_eui' in standard_packet and standard_packet['dev_eui'] is not None and standard_packet[
                             'dev_eui'] != search.group(1):
                             self.log.error("There's an error with Chirsptack collector logic")
@@ -378,14 +440,16 @@ class LoraServerIOCollector(BaseCollector):
 
                         # Set previous values to current message
                         standard_packet['dev_eui'] = client.devices_map[standard_packet['dev_addr']]['dev_eui']
+
                         if len(client.devices_map[standard_packet['dev_addr']]) > 1:
                             standard_packet['app_name'] = client.devices_map[standard_packet['dev_addr']]['app_name']
                             standard_packet['dev_name'] = client.devices_map[standard_packet['dev_addr']]['dev_name']
 
                 self.last_seen = datetime.now()
-            
+
             else:
                 # First, check if we had a prev_packet. If so, first save it
+
                 if client.prev_packet is not None and len(standard_packet) == 0:
                     client.packet_writter_message['packet'] = client.prev_packet
                     save(client.packet_writter_message, client.data_collector_id)
@@ -410,6 +474,7 @@ class LoraServerIOCollector(BaseCollector):
                 return
 
             # Save packet
+
             if client.prev_packet is None and len(standard_packet) > 0:
                 # Save packet JSON
                 client.packet_writter_message['packet'] = standard_packet
@@ -436,9 +501,11 @@ class LoraServerIOCollector(BaseCollector):
 
     def on_connect(self, client, userdata, flags, rc):
         # If this connection is a test, activate the flag and emit the event
+
         if self.being_tested:
             notify_test_event(client.data_collector_id, 'SUCCESS', 'Connection successful')
             self.stop_testing = True
+
             return
         else:
             client.subscribe(client.topics)
@@ -455,6 +522,7 @@ class LoraServerIOCollector(BaseCollector):
 
 def get_crc_status_integer(status_string):
     # This mapping is in https://github.com/brocaar/chirpstack-api/blob/master/protobuf/gw/gw.proto
+
     if status_string=='CRC_OK':
         return 1
     elif status_string=='BAD_CRC':
@@ -492,10 +560,12 @@ if __name__ == '__main__':
 
     if options.topics != None:
         topics = list()
+
         for topic in options.topics:
             topics.append((topic, 0))
 
     # Get the organization
+
     if options.organization_id:
         organization_obj = Organization.find_one(options.organization_id)
 
@@ -518,6 +588,7 @@ if __name__ == '__main__':
 
     # Get the data collector
     collector_obj = None
+
     if options.collector_id:
         collector_obj = DataCollector.find_one(options.collector_id)
 
@@ -553,19 +624,21 @@ if __name__ == '__main__':
         else:
             print('Datacollector IP and port must be provided if not provided a collector ID.')
             exit(0)
-
     collector = LoraServerIOCollector(
         data_collector_id=collector_obj.id,
         organization_id=collector_obj.organization_id,
         host=collector_obj.ip,
         port=int(collector_obj.port),
-        ssl=None,
+        ssl=collector_obj.ssl,
         user=None,
         password=None,
         topics=topics,
         last_seen=collector_obj.last_seen,
         connected=collector_obj.connected,
-        verified=collector_obj.verified)
+        verified=collector_obj.verified,
+        ca_cert=collect_obj.ca_cert,
+        client_cert=collect_obj.client_cert,
+        client_key=collect_obj.client_key)
 
     collector.connect()
 

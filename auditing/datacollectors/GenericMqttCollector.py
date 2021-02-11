@@ -2,6 +2,7 @@
 # Copyright (c) 2019 IOActive Inc.  All rights reserved.
 
 import sys,argparse, datetime, json, base64, os, traceback, json, re, time, logging
+import tempfile
 # The MQTT client used and its documentation can be found in https://github.com/eclipse/paho.mqtt.python
 import paho.mqtt.client as mqtt
 import auditing.datacollectors.utils.PhyParser as phy_parser
@@ -16,13 +17,15 @@ def init_packet_writter_message():
     packet_writter_message = dict()
     packet_writter_message['packet'] = None
     packet_writter_message['messages'] = list()
+
     return packet_writter_message
 
 class GenericMqttCollector:
-    
+
     TIMEOUT = 60
 
-    def __init__(self, data_collector_id, organization_id, host, port, ssl, user, password, topics, last_seen, connected):
+    def __init__(self, data_collector_id, organization_id, host, port, ssl, user, password, topics, last_seen, connected,
+                 ca_cert, client_cert, client_key):
         self.data_collector_id = data_collector_id
         self.organization_id = organization_id
         self.host = host
@@ -35,14 +38,40 @@ class GenericMqttCollector:
         self.last_seen = None
         self.connected = "DISCONNECTED"
         self.disabled = False
+
+        # client tls certificates for mqtt
+        self.ca_cert = ca_cert
+        self.client_cert = client_cert
+        self.client_key = client_key
+        self.ca_cert_file = tempfile.NamedTemporaryFile()
+        self.client_cert_file = tempfile.NamedTemporaryFile()
+        self.client_key_file = tempfile.NamedTemporaryFile()
+
+        if self.ca_cert is not None:
+            self.ca_cert_file.write(ca_cert.encode('ascii'))
+            self.ca_cert_file.flush()
+            self.ca_cert = self.ca_cert_file.name
+
+        if self.client_cert is not None:
+            self.client_cert_file.write(client_cert.encode('ascii'))
+            self.client_cert_file.flush()
+            self.client_cert = self.client_cert_file.name
+
+        if self.client_key is not None:
+            self.client_key_file.write(client_key.encode('ascii'))
+            self.client_key_file.flush()
+            self.client_key = self.client_key_file.name
         # The data sent to the MQTT queue, to be written by the packet writer. It must have at least one MQ message
         self.packet_writter_message = init_packet_writter_message()
-        
+
     def connect(self):
         if self.mqtt_client:
             print('Existing connection')
         else:
             self.mqtt_client = mqtt.Client()
+
+            if self.ca_cert is not None:
+                self.mqtt_client.tls_set(ca_certs=self.ca_cert, keyfile=self.client_key, certfile=self.client_cert)
             self.mqtt_client.organization_id = self.organization_id
             self.mqtt_client.data_collector_id = self.data_collector_id
             self.mqtt_client.host = self.host
@@ -75,7 +104,7 @@ class GenericMqttCollector:
 def on_message(client, userdata, msg):
 
     try:
-        payload = msg.payload.decode("utf-8") 
+        payload = msg.payload.decode("utf-8")
         standardPacket = {}
 
         # Save this message an topic into MQ
@@ -92,13 +121,14 @@ def on_message(client, userdata, msg):
 
             if 'data' not in mqttMessage:
                 logging.error('Received a message without "data" field. Collector ID %d. Topic: %s. Message: %s'%(client.data_collector_id, msg.topic, payload))
-                return 
+
+                return
 
             # Pad the base64 string till it is a multiple of 4
             mqttMessage['data'] += "=" * ((4 - len(mqttMessage['data']) % 4) % 4)
             # Parse the base64 PHYPayload
             standardPacket = phy_parser.setPHYPayload(mqttMessage['data'])
-            
+
             standardPacket['chan'] = mqttMessage.get('chan', None)
             standardPacket['stat'] = mqttMessage.get('stat', None)
             standardPacket['lsnr'] = mqttMessage.get('lsnr', None)
@@ -111,7 +141,7 @@ def on_message(client, userdata, msg):
             standardPacket['codr'] = mqttMessage.get('codr', None)
             standardPacket['size'] = mqttMessage.get('size', None)
             standardPacket['data'] = mqttMessage.get('data', None)
-            
+
             # Gateway not provided by this broker
             standardPacket['gateway'] = None
 
@@ -122,9 +152,10 @@ def on_message(client, userdata, msg):
 
         # These fields are indepedant from the payload
         standardPacket['topic'] = msg.topic
+
         if "/joined" in msg.topic:
             standardPacket['m_type'] = "JoinAccept"
-        standardPacket['date'] = datetime.datetime.now().__str__() 
+        standardPacket['date'] = datetime.datetime.now().__str__()
         standardPacket['dev_eui'] = getDevEUIFromMQTTTopic(msg.topic)
         standardPacket['data_collector_id'] = client.data_collector_id
         standardPacket['organization_id'] = client.organization_id
@@ -132,7 +163,7 @@ def on_message(client, userdata, msg):
         client.packet_writter_message['packet']= standardPacket
 
         save(client.packet_writter_message, client.data_collector_id)
-        
+
         logging.debug('Topic: {0}. Message received: {1}'.format(msg.topic, msg.payload.decode("utf-8") ))
 
         # Reset packet_writter_message
@@ -141,7 +172,7 @@ def on_message(client, userdata, msg):
         userdata.last_seen = datetime.datetime.now()
 
     except Exception as e:
-        logging.error("Error creating Packet in GenericMqttCollector ID "+ client.data_collector_id +":"+ str(e) + "Topic: "+ msg.topic+ "Message: "+ msg.payload.decode("utf-8"))  
+        logging.error("Error creating Packet in GenericMqttCollector ID "+ client.data_collector_id +":"+ str(e) + "Topic: "+ msg.topic+ "Message: "+ msg.payload.decode("utf-8"))
         save_parsing_error(client.data_collector_id, msg.payload.decode("utf-8"))
 
 def on_connect(client, userdata, flags, rc):
@@ -157,16 +188,20 @@ def on_disconnect(client, userdata, rc):
 def getDevEUIFromMQTTTopic(topic):
     search = re.search('lora/(.*)/', topic)
     devEUI= None
+
     if search:
         devEUI = search.group(1).replace('-', '')
+
     return devEUI
 
 def parse_datr(encoded_datr):
     datr = {}
     search = re.search('SF(.*)BW(.*)', encoded_datr)
+
     if search:
         datr["spread_factor"] = search.group(1)
         datr["bandwidth"] = search.group(2)
+
     return datr
 
 
@@ -185,7 +220,7 @@ if __name__ == '__main__':
                         help='MQTT broker ip, eg. --ip 192.168.3.101.')
     parser.add_argument('--port',
                         help='MQTT broker port, eg. --port 623.',
-                        type=int) 
+                        type=int)
     parser.add_argument('--collector-id',
                                 help = 'The ID of the dataCollector. This ID will be associated to the packets saved into DB. eg. --id 1')
     parser.add_argument('--organization-id',
@@ -200,10 +235,12 @@ if __name__ == '__main__':
 
     if options.topics != None:
         topics = list()
+
         for topic in options.topics:
             topics.append((topic, 0))
-    
+
     # Get the organization
+
     if options.organization_id:
         organization_obj = Organization.find_one(options.organization_id)
 
@@ -226,13 +263,14 @@ if __name__ == '__main__':
 
     # Get the data collector
     collector_obj = None
+
     if options.collector_id:
         collector_obj = DataCollector.find_one(options.collector_id)
 
         if collector_obj is None:
             print("DataCollector doesn't exist. Please provide a valid ID")
             exit(0)
-        
+
     else:
 
         if options.ip and options.port:
@@ -256,7 +294,7 @@ if __name__ == '__main__':
                     last_seen= datetime.datetime.now(),
                     connected= "DISCONNECTED")
                 collector_obj.save()
-        
+
         else:
             print('Datacollector IP and port must be provided if not provided a collector ID.')
             exit(0)
@@ -271,7 +309,10 @@ if __name__ == '__main__':
         password = None,
         topics = topics,
         last_seen = collector_obj.last_seen,
-        connected= collector_obj.connected)
+        connected= collector_obj.connected,
+        ca_cert = None,
+        client_cert = None,
+        client_key = None)
 
     connector.connect()
 

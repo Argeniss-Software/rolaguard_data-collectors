@@ -41,14 +41,14 @@ def main():
     for dc in data_collectors:
         for collector in create_collector(dc):
             if dc.get('status') != 'DISABLED':
-                
+
                 # Sending this event is confusing for the user because it shows a
                 #  restart event in the logs when we deploy this code
 
                 # event = {
                 #     "data_collector_id": collector.data_collector_id,
                 #     "status": 'DISCONNECTED',
-                #     "is_restart": True 
+                #     "is_restart": True
                 # }
                 # event = json.dumps(event)
                 # try:
@@ -87,6 +87,7 @@ def consumer():
 def check_data_collectors_status():
     # Wait until every collector is up after deployment. This is to avoid unstable logging in the frontend.
     time.sleep(60*2)
+
     while (True):
         try:
             rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"],
@@ -138,6 +139,7 @@ def handle_events(ch, method, properties, body):
         event = json.loads(body.decode('utf-8'))
     except Exception as exc:
         LOG.error("Couldn\'t deserialize event. Exception: {0}".format(exc))
+
         return
 
     data_collector_id = event.get('data').get('id')
@@ -182,6 +184,7 @@ def handle_events(ch, method, properties, body):
     elif event_type == 'UPDATED':
         close_connection(data_collector_id)
         disabled = False
+
         for collector in  [c for c in collectors if c.data_collector_id == data_collector_id]:
             collector.disconnect()
             disabled = disabled or collector.disabled
@@ -265,11 +268,15 @@ def create_collector(dc):
                 last_seen=dc.get('last_seen'),
                 connected=dc.get('connected'),
                 topics=topics,
-                verified=dc.get('verified')
+                verified=dc.get('verified'),
+                ca_cert=dc.get('ca_cert'),
+                client_cert=dc.get('client_cert'),
+                client_key=dc.get('client_key')
                 )
         )
     elif type == 'ttn_collector':
         gateways = [gw.strip() for gw in dc['gateway_id'].split(",")]
+
         for gw in gateways:
             collectors.append(
                 TTNCollector(
@@ -283,6 +290,7 @@ def create_collector(dc):
             )
     else:
         LOG.error('Unknown/unsupported Data Collector Type: {0}'.format(type))
+
     return collectors
 
 
@@ -297,11 +305,13 @@ def fetch_data_collectors():
     response = conn.getresponse()
     parsed_response = json.loads(response.read().decode())
     token = parsed_response.get('access_token', None)
+
     if token:
         headers['Authorization'] = 'Bearer ' + token
         conn.request('GET', '/api/v1.0/data_collectors', None, headers)
         response = conn.getresponse()
         parsed_response = json.loads(response.read().decode())
+
         return parsed_response.get('data_collectors', None)
     else:
         raise ValueError('Could not login')
