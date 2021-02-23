@@ -29,7 +29,7 @@ def main():
         LOG.debug('Fetching collectors from backend')
         data_collectors = fetch_data_collectors()
     except Exception as exc:
-        LOG.error('Something went wrong fetching data collectors.' + str(exc))
+        LOG.error('Something went wrong fetching data collectors.\n' + str(exc))
         exit(-1)
 
     LOG.debug(f"Found {len(data_collectors)} data collectors")
@@ -312,7 +312,7 @@ def fetch_data_collectors():
         parsed_response = json.loads(response.read().decode())
         return parsed_response.get('data_collectors', None)
     else:
-        raise ValueError('Could not login')
+        raise ValueError(f'Could not login:\n{response}')
 
 
 main()
