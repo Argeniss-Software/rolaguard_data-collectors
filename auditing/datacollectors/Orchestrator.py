@@ -312,7 +312,7 @@ def fetch_data_collectors():
         parsed_response = json.loads(response.read().decode())
         return parsed_response.get('data_collectors', None)
     else:
-        raise ValueError(f'Could not login:\n{str(response)}')
+        raise ValueError(f'Could not login:\n{str(parsed_response)}')
 
 
 main()
