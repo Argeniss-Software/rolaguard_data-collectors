@@ -28,7 +28,7 @@ def main():
     try:
         data_collectors = fetch_data_collectors()
     except Exception as exc:
-        LOG.error('Something went wrong fetching data collectors.' + str(exc))
+        LOG.error('Something went wrong fetching data collectors.\n' + str(exc))
         exit(-1)
 
     LOG.info(f"Found {len(data_collectors)} data collectors")
@@ -314,7 +314,7 @@ def fetch_data_collectors():
 
         return parsed_response.get('data_collectors', None)
     else:
-        raise ValueError('Could not login')
+        raise ValueError(f'Could not login:\n{str(parsed_response)}')
 
 
 main()
