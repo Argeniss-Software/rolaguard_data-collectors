@@ -28,4 +28,5 @@ def rollback():
 
 from .DataCollector import DataCollector
 from .DataCollectorType import DataCollectorType
+from .TTNRegion import TTNRegion
 from .Organization import Organization
