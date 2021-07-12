@@ -1,6 +1,6 @@
 FROM golang:1.14.2-buster
 
-RUN apt-get update && apt-get install -y python3-pip
+RUN apt-get update && apt-get install -y python3-pip libcurl4-nss-dev
 
 # Set the working directory to /app
 WORKDIR /root/app
