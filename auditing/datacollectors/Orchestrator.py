@@ -9,6 +9,7 @@ from threading import Thread
 
 from auditing.datacollectors.LoraServerIOCollector import LoraServerIOCollector
 from auditing.datacollectors.TTNCollector import TTNCollector
+from auditing.datacollectors.TTNv3Collector import TTNv3Collector
 
 from auditing.datacollectors.utils.PacketPersistence import close_connection
 
@@ -288,6 +289,17 @@ def create_collector(dc):
                     verified=dc.get('verified')
                 )
             )
+    elif type == 'ttn_v3_collector':
+        collectors.append(
+            TTNv3Collector(
+                data_collector_id=dc.get('id'),
+                organization_id=dc.get('organization_id'),
+                api_key=dc.get('gateway_api_key'),
+                gateway_name=dc.get('gateway_name'),
+                region_id=dc.get('region_id'),
+                verified=dc.get('verified')
+            )
+        )
     else:
         LOG.error('Unknown/unsupported Data Collector Type: {0}'.format(type))
 
