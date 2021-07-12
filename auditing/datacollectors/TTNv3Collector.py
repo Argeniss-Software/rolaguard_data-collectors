@@ -9,6 +9,7 @@ import auditing.datacollectors.utils.PhyParser as phy_parser
 from auditing.datacollectors.BaseCollector import BaseCollector
 from auditing.datacollectors.utils.PacketPersistence import save, save_parsing_error, save_login_error, \
     notify_test_event
+from auditing.db.TTNRegion import TTNRegion
 
 STREAM_TIMEOUT = 1800  # 30 mins
 
@@ -18,12 +19,12 @@ stream_au1_url = os.environ['self.STREAM_AU1_URL'] if 'self.STREAM_AU1_URL' in o
 
 
 class TTNv3Collector(BaseCollector):
-    def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region, verified):
+    def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified):
         super().__init__(data_collector_id=data_collector_id,
                          organization_id=organization_id, verified=verified)
         self.api_key = api_key
         self.gateway_name = gateway_name
-        self.region = int(region)
+        self.region = TTNRegion.find_region_by_id(int(region_id))
         self.last_seen = None
         self.manually_disconnected = None
         self.packet_writter_message = self.init_packet_writter_message()
@@ -55,14 +56,12 @@ class TTNv3Collector(BaseCollector):
             {'gateway_ids': {'gateway_id': self.gateway_name}}
         ]}
 
-        if self.region == 1:  # eu1
+        if self.region == 'eu1':
             stream_url = stream_eu1_url
-        elif self.region == 2:  # nam1
+        elif self.region == 'nam1':
             stream_url = stream_nam1_url
-        elif self.region == 3:  # au1
+        elif self.region == 'au1':
             stream_url = stream_au1_url
-        else:  # Default 'eu1'
-            stream_url = stream_eu1_url
 
         curl = pycurl.Curl()
         curl.setopt(pycurl.HTTPHEADER, headers)
