@@ -48,6 +48,8 @@ class TTNv3Collector(BaseCollector):
         self.message(data[:-2].decode())
 
     def run_stream(self):
+        init_connection = True
+
         headers = [
             'Accept: text/event-stream',
             'Authorization: Bearer ' + self.api_key
@@ -63,17 +65,20 @@ class TTNv3Collector(BaseCollector):
         elif self.region == 'au1':
             stream_url = stream_au1_url
 
-        curl = pycurl.Curl()
-        curl.setopt(pycurl.HTTPHEADER, headers)
-        curl.setopt(pycurl.URL, stream_url)
-        curl.setopt(pycurl.WRITEFUNCTION, self.on_receive)
-        curl.setopt(pycurl.POSTFIELDS, json.dumps(post_data))
-        curl.setopt(pycurl.TIMEOUT, STREAM_TIMEOUT)
-
-        multi_curl = pycurl.CurlMulti()
-        multi_curl.add_handle(curl)
-
         while True:
+            if init_connection:
+                curl = pycurl.Curl()
+                curl.setopt(pycurl.HTTPHEADER, headers)
+                curl.setopt(pycurl.URL, stream_url)
+                curl.setopt(pycurl.WRITEFUNCTION, self.on_receive)
+                curl.setopt(pycurl.POSTFIELDS, json.dumps(post_data))
+                curl.setopt(pycurl.TIMEOUT, STREAM_TIMEOUT)
+
+                multi_curl = pycurl.CurlMulti()
+                multi_curl.add_handle(curl)
+
+                init_connection = False
+
             multi_curl.perform()
             status_code = curl.getinfo(pycurl.RESPONSE_CODE)
 
@@ -102,8 +107,10 @@ class TTNv3Collector(BaseCollector):
                         pass
                     elif 'Operation timed out' in error:
                         # Restart the connection every STREAM_TIMEOUT secs
-                        multi_curl.remove_handle(curl)
-                        multi_curl.add_handle(curl)
+                        curl.close()
+                        multi_curl.close()
+                        init_connection = True
+                        break
                     else:
                         self.connected = 'DISCONNECTED'
                         curl.close()
@@ -234,14 +241,15 @@ class TTNv3Collector(BaseCollector):
                 tmst = message.get('time', None)
                 if tmst:
                     packet['tmst'] = datetime.timestamp(
-                        dateutil.parser.parse(tmst))*1000
+                        dateutil.parser.parse(tmst))
                 else:
                     packet['tmst'] = None
 
                 if name == 'gs.up.receive':
                     settings = message_data.get('settings', None)
                     if settings:
-                        packet['freq'] = settings.get('frequency', None)
+                        packet['freq'] = int(settings.get(
+                            'frequency', None))/1000000
                         packet['codr'] = settings.get('coding_rate', None)
                     else:
                         packet['freq'] = None
@@ -250,7 +258,8 @@ class TTNv3Collector(BaseCollector):
                     request = message_data.get('request', None)
                     if request:
                         # rx1_frequency is stored as freq, rx2_frequency isn't stored
-                        packet['freq'] = request.get('rx1_frequency', None)
+                        packet['freq'] = int(request.get(
+                            'rx1_frequency', None))/1000000
                     else:
                         packet['freq'] = None
                     packet['codr'] = None
