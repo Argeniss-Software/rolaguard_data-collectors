@@ -19,6 +19,27 @@ stream_au1_url = os.environ['self.STREAM_AU1_URL'] if 'self.STREAM_AU1_URL' in o
 
 
 class TTNv3Collector(BaseCollector):
+
+    """
+    This collector establishes a connection to a thethingsnetwork.com account and 
+    retrieves data from the https://<region>.cloud.thethings.network/api/v3/events endpoint using Curl.
+
+    The steps to retrieve gateway payloads:
+    1- Connect to the stream event using the values gateway_name and api_key provided by the user.
+    2- Handle messages with the message() function.
+
+    There are different kinds of messages, the most important are:
+    * gateway downlink and gateway uplink: this is, uplink and downlink data messages
+    (PHYpayload) as well as radio metadata. Uplinks are received under the name "gs.up.receive" and downlinks under the name "gs.down.send".
+    * join requests, which are received under the name "gs.up.receive", and join accept, which come under the name "gs.down.send".
+    * gateway status: it provides the location of the gateway. Come under the name "gs.status.receive".
+
+    About the functioning of this collector:
+    1- It's instantiated in the Orchestrator, and it's started by executing connect()
+    method.
+    2- In connect() a thread is launched to start the stream, where new messages are checked every second and processed. The connection is restarted every 30 minutes to avoid the disconnection from the server.
+    """
+
     def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified):
         super().__init__(data_collector_id=data_collector_id,
                          organization_id=organization_id, verified=verified)
