@@ -192,11 +192,11 @@ def handle_events(ch, method, properties, body):
             collectors.remove(collector)
 
 
-        event = {
+        status_event = {
             "data_collector_id": data_collector_id,
             "status": 'DISCONNECTED'
         }
-        event = json.dumps(event)
+        status_event = json.dumps(status_event)
 
         try:
             rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"],
@@ -205,7 +205,7 @@ def handle_events(ch, method, properties, body):
                 pika.ConnectionParameters(host=os.environ["RABBITMQ_HOST"], port=int(os.environ["RABBITMQ_PORT"]),
                                           credentials=rabbit_credentials))
             channel = connection.channel()
-            channel.basic_publish(exchange='', routing_key='data_collectors_status_events', body=event.encode('utf-8'))
+            channel.basic_publish(exchange='', routing_key='data_collectors_status_events', body=status_event.encode('utf-8'))
             connection.close()
         except Exception as e:
             LOG.error(
