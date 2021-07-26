@@ -66,11 +66,11 @@ class TTNv3Collector(BaseCollector):
                 f'Error starting stream thread for gw {self.gateway_name}, another thread is alive')
 
     def on_receive(self, data):
-        msgs = data[:-2].decode() # Each message ends with '\n\n'
-        # If more than one message was readed, we have to split them
-        # and process each one independently
-        msgs = msgs.split('\n\n')
-        for msg in msgs:
+        decoded_data = data[:-2].decode() # Each message ends with '\n\n'
+        # If more than one message was read, we have to split them and
+        # process each one independently
+        decoded_data = decoded_data.split('\n\n')
+        for msg in decoded_data:
             self.message(msg)
 
     def run_stream(self):
