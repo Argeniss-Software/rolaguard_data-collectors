@@ -1,5 +1,7 @@
 import logging, os, time 
 import json
+import threading
+from auditing.datacollectors.utils.Publisher import Publisher
 
 
 LOG = logging.getLogger(__name__)
@@ -16,9 +18,11 @@ import pika
 
 channel = None
 
-# key= data_collector id. value= channel
-channel_per_data_collector = {}
+# key= data_collector id. value= publisher
+data_collector_publishers = {}
 
+def run_publisher_thread(publisher):
+    publisher.run()
 
 def save(packet_writter_message, collector_id='default'):
     if len(packet_writter_message['messages']) == 0:
@@ -30,36 +34,30 @@ def save(packet_writter_message, collector_id='default'):
         # Add timestamp to packet_writter_message
         packet_writter_message['ts'] = int(time.time())
 
-        global channel_per_data_collector
-        if collector_id not in channel_per_data_collector or channel_per_data_collector[
-            collector_id].connection.is_closed:
-            rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"],
-                                                       os.environ["RABBITMQ_DEFAULT_PASS"])
+        global data_collector_publishers
+        if collector_id not in data_collector_publishers:
+            publisher = Publisher(collector_id=collector_id,
+                                  routing_key='collectors_queue',
+                                  queue_name='collectors_queue')
 
-            connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=os.environ["RABBITMQ_HOST"], port=int(os.environ["RABBITMQ_PORT"]),
-                                          credentials=rabbit_credentials)
-            )
+            publisher_thread = threading.Thread(
+                target=run_publisher_thread, args=(publisher,))
+            publisher_thread.daemon = True
+            publisher_thread.start()
 
-            channel_per_data_collector[collector_id] = connection.channel()
-            channel_per_data_collector[collector_id].queue_declare(queue='collectors_queue', durable=True)
+            data_collector_publishers[collector_id] = publisher
 
-        channel_per_data_collector[collector_id].basic_publish(
-            exchange='',
-            routing_key='collectors_queue',
-            body=json.dumps(packet_writter_message),
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # make message persistent
-            ))
+        data_collector_publishers[collector_id].add_message_to_queue(packet_writter_message)
     except Exception as e:
         LOG.error(
             "Error when connecting to data-collectors packet queue: " + str(e) + "Collector ID: " + str(collector_id))
 
 
 def close_connection(collector_id):
-    if collector_id in channel_per_data_collector:
-        channel_per_data_collector[collector_id].close()
-        del channel_per_data_collector[collector_id]
+    if collector_id in data_collector_publishers:
+        data_collector_publishers[collector_id].schedule_stop()
+        time.sleep(2)
+        del data_collector_publishers[collector_id]
 
 
 def save_parsing_error(collector_id, message):

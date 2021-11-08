@@ -9,6 +9,7 @@ from threading import Thread
 
 from auditing.datacollectors.LoraServerIOCollector import LoraServerIOCollector
 from auditing.datacollectors.TTNCollector import TTNCollector
+from auditing.datacollectors.TTNv3Collector import TTNv3Collector
 
 from auditing.datacollectors.utils.PacketPersistence import close_connection
 
@@ -191,11 +192,11 @@ def handle_events(ch, method, properties, body):
             collectors.remove(collector)
 
 
-        event = {
+        status_event = {
             "data_collector_id": data_collector_id,
             "status": 'DISCONNECTED'
         }
-        event = json.dumps(event)
+        status_event = json.dumps(status_event)
 
         try:
             rabbit_credentials = pika.PlainCredentials(os.environ["RABBITMQ_DEFAULT_USER"],
@@ -204,7 +205,7 @@ def handle_events(ch, method, properties, body):
                 pika.ConnectionParameters(host=os.environ["RABBITMQ_HOST"], port=int(os.environ["RABBITMQ_PORT"]),
                                           credentials=rabbit_credentials))
             channel = connection.channel()
-            channel.basic_publish(exchange='', routing_key='data_collectors_status_events', body=event.encode('utf-8'))
+            channel.basic_publish(exchange='', routing_key='data_collectors_status_events', body=status_event.encode('utf-8'))
             connection.close()
         except Exception as e:
             LOG.error(
@@ -288,6 +289,17 @@ def create_collector(dc):
                     verified=dc.get('verified')
                 )
             )
+    elif type == 'ttn_v3_collector':
+        collectors.append(
+            TTNv3Collector(
+                data_collector_id=dc.get('id'),
+                organization_id=dc.get('organization_id'),
+                api_key=dc.get('gateway_api_key'),
+                gateway_name=dc.get('gateway_name'),
+                region_id=dc.get('region_id'),
+                verified=dc.get('verified')
+            )
+        )
     else:
         LOG.error('Unknown/unsupported Data Collector Type: {0}'.format(type))
 
