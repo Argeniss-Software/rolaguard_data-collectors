@@ -1,9 +1,11 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 import os
+import logging
+import time
 
 
-DB_HOST = os.environ["DB_HOST"] 
+DB_HOST = os.environ["DB_HOST"]
 DB_NAME = os.environ["DB_NAME"] 
 DB_USERNAME = os.environ["DB_USERNAME"] 
 DB_PASSWORD = os.environ["DB_PASSWORD"] 
@@ -15,6 +17,14 @@ engine = create_engine('postgresql+psycopg2://{user}:{pw}@{url}:{port}/{db}'.\
 sessionBuilder = sessionmaker()
 sessionBuilder.configure(bind=engine)
 session = sessionBuilder()
+
+while True:
+    try:
+        engine.connect()
+        break
+    except Exception as exc:
+        logging.warning("Couldn't connect with postgres. Retrying connection.")
+        time.sleep(1)
 
 def commit():
     session.commit()
