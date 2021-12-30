@@ -40,9 +40,9 @@ class TTNv3Collector(BaseCollector):
     2- In connect() a thread is launched to start the stream, where new messages are checked every second and processed. The connection is restarted every 30 minutes to avoid the disconnection from the server.
     """
 
-    def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified):
+    def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified, host, port):
         super().__init__(data_collector_id=data_collector_id,
-                         organization_id=organization_id, verified=verified)
+                         organization_id=organization_id, verified=verified, host=host, port=port)
         self.api_key = api_key
         self.gateway_name = gateway_name
         self.region = TTNRegion.find_region_by_id(int(region_id))
@@ -52,6 +52,8 @@ class TTNv3Collector(BaseCollector):
         self.stream_thread = None
         self.location = dict()  # Dict containing location
         self.being_tested = False
+        self.host = host
+        self.port = port
 
     def connect(self):
         if self.stream_thread is None:
@@ -83,13 +85,16 @@ class TTNv3Collector(BaseCollector):
         post_data = {'identifiers': [
             {'gateway_ids': {'gateway_id': self.gateway_name}}
         ]}
-
-        if self.region == 'eu1':
-            stream_url = stream_eu1_url
-        elif self.region == 'nam1':
-            stream_url = stream_nam1_url
-        elif self.region == 'au1':
-            stream_url = stream_au1_url
+        
+        if self.region is None:
+            stream_url = self.host
+        else:
+            if self.region == 'eu1':
+                stream_url = stream_eu1_url
+            elif self.region == 'nam1':
+                stream_url = stream_nam1_url
+            elif self.region == 'au1':
+                stream_url = stream_au1_url
 
         while True:
             if init_connection:
