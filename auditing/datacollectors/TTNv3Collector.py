@@ -2,6 +2,7 @@ import os
 import threading
 import json
 import pycurl
+import validators
 from datetime import datetime
 from time import sleep
 import dateutil.parser
@@ -16,7 +17,6 @@ STREAM_TIMEOUT = 1800  # 30 mins
 stream_eu1_url = os.environ['self.STREAM_EU1_URL'] if 'self.STREAM_EU1_URL' in os.environ else 'https://eu1.cloud.thethings.network/api/v3/events'
 stream_nam1_url = os.environ['self.STREAM_NAM1_URL'] if 'self.STREAM_NAM1_URL' in os.environ else 'https://nam1.cloud.thethings.network/api/v3/events'
 stream_au1_url = os.environ['self.STREAM_AU1_URL'] if 'self.STREAM_AU1_URL' in os.environ else 'https://au1.cloud.thethings.network/api/v3/events'
-
 
 class TTNv3Collector(BaseCollector):
 
@@ -42,10 +42,13 @@ class TTNv3Collector(BaseCollector):
 
     def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified, host, port):
         super().__init__(data_collector_id=data_collector_id,
-                         organization_id=organization_id, verified=verified, host=host, port=port)
+                         organization_id=organization_id, verified=verified)
         self.api_key = api_key
         self.gateway_name = gateway_name
-        self.region = TTNRegion.find_region_by_id(int(region_id))
+        if region_id is None:
+            self.region = None
+        else:
+            self.region = TTNRegion.find_region_by_id(int(region_id))
         self.last_seen = None
         self.manually_disconnected = None
         self.packet_writter_message = self.init_packet_writter_message()
@@ -87,7 +90,10 @@ class TTNv3Collector(BaseCollector):
         ]}
         
         if self.region is None:
-            stream_url = self.host
+            if validators.url(self.host):
+                stream_url=self.host
+            elif validators.domain(self.host):
+                stream_url=self.host+':'+str(self.port)
         else:
             if self.region == 'eu1':
                 stream_url = stream_eu1_url
