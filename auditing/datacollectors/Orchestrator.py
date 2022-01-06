@@ -286,9 +286,7 @@ def create_collector(dc):
                     user=dc.get('user'),
                     password=dc.get('password'),
                     gateway_id=gw,
-                    verified=dc.get('verified'),
-                    host=dc.get('ip'),
-                    port=int(dc.get('port'))
+                    verified=dc.get('verified')
                 )
             )
     elif type == 'ttn_v3_collector':
@@ -300,8 +298,8 @@ def create_collector(dc):
                 gateway_name=dc.get('gateway_name'),
                 region_id=dc.get('region_id'),
                 verified=dc.get('verified'),
-                host=dc.get('ip'),
-                port=int(dc.get('port'))
+                host=dc.get('ip'), # Added host on TTNv3
+                port=int(dc.get('port')) # Added port on TTNv3
             )
         )
     else:
