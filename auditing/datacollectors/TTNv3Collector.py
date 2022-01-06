@@ -45,7 +45,7 @@ class TTNv3Collector(BaseCollector):
                          organization_id=organization_id, verified=verified)
         self.api_key = api_key
         self.gateway_name = gateway_name
-        if region_id is None:
+        if region_id is None:   # Check if a region is selected or not
             self.region = None
         else:
             self.region = TTNRegion.find_region_by_id(int(region_id))
@@ -88,12 +88,14 @@ class TTNv3Collector(BaseCollector):
         post_data = {'identifiers': [
             {'gateway_ids': {'gateway_id': self.gateway_name}}
         ]}
+
+        # Check if a region is selected or if user entered an URL or IP/Hostname
         
         if self.region is None:
             if validators.url(self.host):
-                stream_url=self.host
+                stream_url = self.host
             elif validators.domain(self.host):
-                stream_url=self.host+':'+str(self.port)
+                stream_url = self.host+':'+str(self.port)
         else:
             if self.region == 'eu1':
                 stream_url = stream_eu1_url
