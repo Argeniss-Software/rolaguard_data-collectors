@@ -2,6 +2,7 @@ import os
 import threading
 import json
 import pycurl
+import validators
 from datetime import datetime
 from time import sleep
 import dateutil.parser
@@ -16,7 +17,6 @@ STREAM_TIMEOUT = 1800  # 30 mins
 stream_eu1_url = os.environ['self.STREAM_EU1_URL'] if 'self.STREAM_EU1_URL' in os.environ else 'https://eu1.cloud.thethings.network/api/v3/events'
 stream_nam1_url = os.environ['self.STREAM_NAM1_URL'] if 'self.STREAM_NAM1_URL' in os.environ else 'https://nam1.cloud.thethings.network/api/v3/events'
 stream_au1_url = os.environ['self.STREAM_AU1_URL'] if 'self.STREAM_AU1_URL' in os.environ else 'https://au1.cloud.thethings.network/api/v3/events'
-
 
 class TTNv3Collector(BaseCollector):
 
@@ -40,18 +40,23 @@ class TTNv3Collector(BaseCollector):
     2- In connect() a thread is launched to start the stream, where new messages are checked every second and processed. The connection is restarted every 30 minutes to avoid the disconnection from the server.
     """
 
-    def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified):
+    def __init__(self, data_collector_id, organization_id, api_key, gateway_name, region_id, verified, host, port):
         super().__init__(data_collector_id=data_collector_id,
                          organization_id=organization_id, verified=verified)
         self.api_key = api_key
         self.gateway_name = gateway_name
-        self.region = TTNRegion.find_region_by_id(int(region_id))
+        if region_id is None:   # Check if a region is selected or not
+            self.region = None
+        else:
+            self.region = TTNRegion.find_region_by_id(int(region_id))
         self.last_seen = None
         self.manually_disconnected = None
         self.packet_writter_message = self.init_packet_writter_message()
         self.stream_thread = None
         self.location = dict()  # Dict containing location
         self.being_tested = False
+        self.host = host
+        self.port = port
 
     def connect(self):
         if self.stream_thread is None:
@@ -84,12 +89,20 @@ class TTNv3Collector(BaseCollector):
             {'gateway_ids': {'gateway_id': self.gateway_name}}
         ]}
 
-        if self.region == 'eu1':
-            stream_url = stream_eu1_url
-        elif self.region == 'nam1':
-            stream_url = stream_nam1_url
-        elif self.region == 'au1':
-            stream_url = stream_au1_url
+        # Check if a region is selected or if user entered an URL or IP/Hostname
+        
+        if self.region is None:
+            if validators.url(self.host):
+                stream_url = self.host
+            elif validators.domain(self.host):
+                stream_url = self.host+':'+str(self.port)
+        else:
+            if self.region == 'eu1':
+                stream_url = stream_eu1_url
+            elif self.region == 'nam1':
+                stream_url = stream_nam1_url
+            elif self.region == 'au1':
+                stream_url = stream_au1_url
 
         while True:
             if init_connection:

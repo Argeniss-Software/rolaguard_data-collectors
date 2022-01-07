@@ -297,7 +297,9 @@ def create_collector(dc):
                 api_key=dc.get('gateway_api_key'),
                 gateway_name=dc.get('gateway_name'),
                 region_id=dc.get('region_id'),
-                verified=dc.get('verified')
+                verified=dc.get('verified'),
+                host=dc.get('ip'), # Added host on TTNv3
+                port=int(dc.get('port')) # Added port on TTNv3
             )
         )
     else:
