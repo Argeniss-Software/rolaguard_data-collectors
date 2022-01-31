@@ -309,7 +309,7 @@ def create_collector(dc):
                     TTNv3Collector(
                         data_collector_id=dc.get('id'),
                         organization_id=dc.get('organization_id'),
-                        api_key=gtw.get('gateway_api_key'),
+                        api_key=dc.get('gateway_api_key'),
                         gateway_name=gtw.get('gateway_name'),
                         region_id=dc.get('region_id'),
                         verified=dc.get('verified'),
