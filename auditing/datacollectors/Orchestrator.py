@@ -290,18 +290,34 @@ def create_collector(dc):
                 )
             )
     elif type == 'ttn_v3_collector':
-        collectors.append(
-            TTNv3Collector(
-                data_collector_id=dc.get('id'),
-                organization_id=dc.get('organization_id'),
-                api_key=dc.get('gateway_api_key'),
-                gateway_name=dc.get('gateway_name'),
-                region_id=dc.get('region_id'),
-                verified=dc.get('verified'),
-                host=dc.get('ip'), # Added host on TTNv3
-                port=int(dc.get('port')) # Added port on TTNv3
+        if not dc.get('gateways_list'):    
+            collectors.append(
+                TTNv3Collector(
+                    data_collector_id=dc.get('id'),
+                    organization_id=dc.get('organization_id'),
+                    api_key=dc.get('gateway_api_key'),
+                    gateway_name=dc.get('gateway_name'),
+                    region_id=dc.get('region_id'),
+                    verified=dc.get('verified'),
+                    host=dc.get('ip'), # Added host on TTNv3
+                    port=int(dc.get('port')) # Added port on TTNv3
+                )
             )
-        )
+        else:
+            for gtw in dc.get('gateways_list'):
+                collectors.append(
+                    TTNv3Collector(
+                        data_collector_id=dc.get('id'),
+                        organization_id=dc.get('organization_id'),
+                        api_key=dc.get('gateway_api_key'),
+                        gateway_name=gtw.get('gateway_name'),
+                        region_id=dc.get('region_id'),
+                        verified=dc.get('verified'),
+                        host=dc.get('ip'), # Added host on TTNv3
+                        port=int(dc.get('port')) # Added port on TTNv3
+                    )
+                )
+
     else:
         LOG.error('Unknown/unsupported Data Collector Type: {0}'.format(type))
 
