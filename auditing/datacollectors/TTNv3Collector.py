@@ -322,7 +322,9 @@ class TTNv3Collector(BaseCollector):
 
                 identifiers = message.get('identifiers', None)
                 if identifiers:
-                    packet['gateway'] = identifiers[0]['gateway_ids']['eui']
+                    for id in identifiers:
+                        packet['gateway'] = id['gateway_ids'].get('eui')
+                        if packet['gateway']: break
                 else:
                     packet['gateway'] = None
 
