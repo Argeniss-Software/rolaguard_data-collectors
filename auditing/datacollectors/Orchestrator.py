@@ -314,7 +314,7 @@ def create_collector(dc):
                         region_id=dc.get('region_id'),
                         verified=dc.get('verified'),
                         host=dc.get('ip'), # Added host on TTNv3
-                        port=int(dc.get('port')) # Added port on TTNv3
+                        port= int(dc.get('port')) if dc.get('port') else None # Added port on TTNv3
                     )
                 )
 
