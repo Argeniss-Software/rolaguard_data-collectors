@@ -262,20 +262,24 @@ class LoraServerIOCollector(BaseCollector):
                 except Exception as e:
                     self.log.error(f'Error parsing protobuf: {e}. Protobuf message: {msg.payload}')
             else:
-                # Save this message an topic into MQ
-                client.packet_writter_message['messages'].append(
-                    {
-                        'topic': msg.topic,
-                        'message': msg.payload.decode("utf-8"),
-                        'data_collector_id': client.data_collector_id
-                    }
-                )
-                save(client.packet_writter_message, client.data_collector_id)
+                try:
+                    # Save this message an topic into MQ
+                    client.packet_writter_message['messages'].append(
+                        {
+                            'topic': msg.topic,
+                            'message': msg.payload.decode("utf-8"),
+                            'data_collector_id': client.data_collector_id
+                        }
+                    )
+                    save(client.packet_writter_message, client.data_collector_id)
 
-                # Reset packet_writter_message
-                client.packet_writter_message = self.init_packet_writter_message()
+                    # Reset packet_writter_message
+                    client.packet_writter_message = self.init_packet_writter_message()
 
-                save_parsing_error(collector_id=client.data_collector_id, message=str(e))
+                    save_parsing_error(collector_id=client.data_collector_id, message=str(e))
+                except Exception as e:
+                    self.log.error("Parsing-payload error. Payload: ")
+                    self.log.error(msg.payload)
 
                 return
 
