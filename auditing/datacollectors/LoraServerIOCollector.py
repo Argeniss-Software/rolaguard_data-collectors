@@ -322,7 +322,7 @@ class LoraServerIOCollector(BaseCollector):
                     # Save the PHYPayload
                     standard_packet['data'] = mqtt_messsage.get('phyPayload')
 
-                if is_protobuf_message:
+                try:
                     if 'rxInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('rxInfo')
                         standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayID')).hex()
@@ -340,7 +340,7 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['datr'] = json.dumps({"spread_factor": lora_modulation_info.get('spreadingFactor'),
                                                         "bandwidth": lora_modulation_info.get('bandwidth')})
                         standard_packet['codr'] = lora_modulation_info.get('codeRate')
-                else:
+                except Exception as exc:
                     if 'rxInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('rxInfo')
                         standard_packet['chan'] = x_info.get('channel')
