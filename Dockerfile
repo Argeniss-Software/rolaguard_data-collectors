@@ -1,4 +1,4 @@
-FROM golang:1.14.2-buster
+FROM golang:1.17.3-buster
 
 RUN apt-get update && apt-get install -y python3-pip libcurl4-nss-dev
 
@@ -17,6 +17,7 @@ RUN pip3 install --trusted-host pypi.python.org -r requirements.txt
 ADD . /root/app/
 
 # Install go dependencies
+RUN go env -w GO111MODULE=off
 RUN go get -d ./...
 
 # Compile go library
@@ -24,4 +25,4 @@ WORKDIR /root/app/lorawanwrapper/utils
 RUN go build -o lorawanWrapper.so -buildmode=c-shared jsonUnmarshaler.go lorawanWrapper.go micGenerator.go sessionKeysGenerator.go
 
 WORKDIR /root/app
-CMD python3 auditing/datacollectors/Orchestrator.py 
+CMD python3 auditing/datacollectors/Orchestrator.py
