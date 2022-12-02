@@ -262,25 +262,14 @@ class LoraServerIOCollector(BaseCollector):
                 except Exception as e:
                     self.log.error(f'Error parsing protobuf: {e}. Protobuf message: {msg.payload}')
             else:
+                # it seems like we're not correctly handling the information received. TODO
                 try:
-                    # Save this message an topic into MQ
-                    client.packet_writter_message['messages'].append(
-                        {
-                            'topic': msg.topic,
-                            'message': msg.payload.decode("utf-8"),
-                            'data_collector_id': client.data_collector_id
-                        }
-                    )
-                    save(client.packet_writter_message, client.data_collector_id)
-
-                    # Reset packet_writter_message
-                    client.packet_writter_message = self.init_packet_writter_message()
-
-                    save_parsing_error(collector_id=client.data_collector_id, message=str(e))
+                    uplink= api.UplinkFrame()
+                    uplink.ParseFromString(msg.payload)
+                    mqtt_messsage= json.loads(MessageToJson(uplink))
+                    is_protobuf_message= True
                 except Exception as e:
-                    self.log.error("Parsing-payload error. Payload: ")
-                    self.log.error(msg.payload)
-
+                    self.log.error(f'Error parsing protobuf: {e}. Protobuf message: {msg.payload}')
                 return
 
         try:
