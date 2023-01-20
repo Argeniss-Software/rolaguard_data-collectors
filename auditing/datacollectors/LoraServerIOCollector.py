@@ -322,6 +322,16 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['lsnr'] = x_info.get('loRaSNR')
                         standard_packet['size'] = x_info.get('size')
 
+                    if 'rxInfoLegacy' in mqtt_messsage:
+                        #not using: time, timeSinceGpsEpoch, context, uplinkId
+
+                        x_info = mqtt_messsage.get('rxInfoLegacy')
+                        standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayId')).hex()
+                        standard_packet['rssi'] = x_info.get('rssi')
+                        standard_packet['lsnr'] = x_info.get('loraSnr')
+                        standard_packet['chan'] = x_info.get('channel')
+                        standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
+
                     if 'txInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('txInfo')
                         standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
@@ -329,6 +339,16 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['datr'] = json.dumps({"spread_factor": lora_modulation_info.get('spreadingFactor'),
                                                         "bandwidth": lora_modulation_info.get('bandwidth')})
                         standard_packet['codr'] = lora_modulation_info.get('codeRate')
+
+                    if 'txInfoLegacy' in mqtt_messsage:
+                        x_info = mqtt_messsage.get('txInfoLegacy')
+                        standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
+                        lora_modulation_info= x_info.get('loraModulationInfo')
+                        standard_packet['datr'] = json.dumps({"spread_factor": lora_modulation_info.get('spreadingFactor'),
+                                                        "bandwidth": lora_modulation_info.get('bandwidth')})
+                        standard_packet['codr'] = lora_modulation_info.get('codeRateLegacy')
+
+
                 except Exception as exc:
                     if 'rxInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('rxInfo')
