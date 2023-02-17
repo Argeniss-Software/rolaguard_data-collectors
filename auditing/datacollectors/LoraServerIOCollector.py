@@ -272,6 +272,7 @@ class LoraServerIOCollector(BaseCollector):
                     self.log.error(f'Error parsing protobuf: {e}. Protobuf message: {msg.payload}')
                 return
 
+        # self.log.debug(mqtt_messsage)
         try:
             standard_packet = {}
 
@@ -414,7 +415,7 @@ class LoraServerIOCollector(BaseCollector):
 
             # From topic application/*/device/*/rx or application/*/node/*/rx
             elif re.search('application/.*?/device/(.*)/rx', msg.topic) is not None or re.search(
-                    'application/.*?/node/(.*)/rx', msg.topic) is not None:
+                    'application/.*?/node/(.*)/rx', msg.topic) is not None or re.search('application/.*?/device/(.*)/up', msg.topic) is not None:
 
                 search = re.search('application/.*?/device/(.*)/rx', msg.topic)
 
@@ -459,7 +460,6 @@ class LoraServerIOCollector(BaseCollector):
                             standard_packet['dev_name'] = client.devices_map[standard_packet['dev_addr']]['dev_name']
 
                 self.last_seen = datetime.now()
-
             else:
                 # First, check if we had a prev_packet. If so, first save it
 
