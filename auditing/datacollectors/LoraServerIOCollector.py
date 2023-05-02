@@ -15,6 +15,7 @@ import tempfile
 from auditing import iot_logging
 from time import sleep
 from datetime import datetime, timedelta
+import dateutil.parser
 import auditing.datacollectors.utils.PhyParser as phy_parser
 from auditing.datacollectors.BaseCollector import BaseCollector
 from auditing.datacollectors.utils.PacketPersistence import save, save_parsing_error, notify_test_event
@@ -315,7 +316,7 @@ class LoraServerIOCollector(BaseCollector):
                 try:
                     if 'rxInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('rxInfo')
-                        standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayID')).hex()
+                        standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayId')).hex()
                         standard_packet['chan'] = x_info.get('channel')
                         standard_packet['rfch'] = x_info.get('rfChain')
                         standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
@@ -331,6 +332,8 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['rssi'] = x_info.get('rssi')
                         standard_packet['lsnr'] = x_info.get('loraSnr')
                         standard_packet['chan'] = x_info.get('channel')
+                        # standard_packet['tmst'] = x_info.get('time')
+                        standard_packet['tmst'] =  datetime.timestamp(dateutil.parser.parse(x_info.get('time', None))) * 1000
                         standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
 
                     if 'txInfo' in mqtt_messsage:
@@ -353,25 +356,22 @@ class LoraServerIOCollector(BaseCollector):
                 except Exception as exc:
                     if 'rxInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('rxInfo')
+                        standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayId')).hex()
                         standard_packet['chan'] = x_info.get('channel')
                         standard_packet['rfch'] = x_info.get('rfChain')
-                        standard_packet['stat'] = x_info.get('crcStatus')
-                        standard_packet['codr'] = x_info.get('codeRate')
+                        standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus'))
                         standard_packet['rssi'] = x_info.get('rssi')
                         standard_packet['lsnr'] = x_info.get('loRaSNR')
                         standard_packet['size'] = x_info.get('size')
+                        standard_packet['tmst'] =  datetime.timestamp(dateutil.parser.parse(x_info.get('time', None))) * 1000
 
                     if 'txInfo' in mqtt_messsage:
                         x_info= mqtt_messsage.get('txInfo')
-
-                    standard_packet['tmst'] = x_info.get('timestamp')
-                    standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
-                    standard_packet['gateway'] = x_info.get('mac')
-
-                    data_rate= x_info.get('dataRate')
-                    standard_packet['modu'] = data_rate.get('modulation')
-                    standard_packet['datr'] = json.dumps({"spread_factor": data_rate.get('spreadFactor'),
-                                                        "bandwidth": data_rate.get('bandwidth')})
+                        standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
+                        lora_modulation_info = (x_info.get('modulation')).get('lora')
+                        standard_packet['datr'] = json.dumps({"spread_factor": lora_modulation_info.get('spreadingFactor'),
+                                                        "bandwidth": lora_modulation_info.get('bandwidth')})
+                        # standard_packet['codr'] = json.dumps({lora_modulation_info.get('codeRate')})
 
                 # Add missing fields, independant from type of packet
                 standard_packet['topic'] = msg.topic
