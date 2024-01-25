@@ -10,6 +10,9 @@ ENV GOPATH="/root/go"
 # Add the python requirements first in order to docker cache them
 ADD ./requirements.txt /root/app/requirements.txt
 
+# Upgrade setuptools in order to install latest chirpstack_api dependencies
+RUN pip3 install --upgrade pip setuptools
+
 # Install any needed packages specified in requirements.txt
 RUN pip3 install --trusted-host pypi.python.org -r requirements.txt
 
