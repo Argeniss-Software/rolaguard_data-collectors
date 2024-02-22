@@ -1,4 +1,4 @@
-# LoRaWAN Security Framework - LoraServerIOCollector
+# LoRaWAN Security Framework - LoraServerIOCollectorV4
 # Copyright (c) 2019 IOActive Inc.  All rights reserved.
 
 import sys
@@ -23,7 +23,7 @@ from google.protobuf.json_format import MessageToJson
 
 
 
-class LoraServerIOCollector(BaseCollector):
+class LoraServerIOCollectorV4(BaseCollector):
     TIMEOUT = 60
 
     """
@@ -110,11 +110,11 @@ class LoraServerIOCollector(BaseCollector):
 
 
     def connect(self):
-        super(LoraServerIOCollector, self).connect()
+        super(LoraServerIOCollectorV4, self).connect()
 
         if self.mqtt_client:
             print('Existing connection')
-        else:       
+        else:
             self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
 
             if self.ca_cert is not None:
@@ -164,7 +164,7 @@ class LoraServerIOCollector(BaseCollector):
         self.ca_cert_file.close()
         self.client_cert_file.close()
         self.client_key_file.close()
-        super(LoraServerIOCollector, self).disconnect()
+        super(LoraServerIOCollectorV4, self).disconnect()
 
     def reconnect(self):
         print('reconnection')
@@ -272,7 +272,7 @@ class LoraServerIOCollector(BaseCollector):
                 except Exception as e:
                     self.log.error(f'Error parsing protobuf: {e}. Protobuf message: {msg.payload}')
                 return
-
+        # self.log.debug("mqtt_messsage")
         # self.log.debug(mqtt_messsage)
         try:
             standard_packet = {}
@@ -280,7 +280,9 @@ class LoraServerIOCollector(BaseCollector):
             # If it's a Join message, then associate DevEUI with DevAddr
 
             if msg.topic[-5:] == "/join":
-                device_info = {'dev_eui': mqtt_messsage.get('devEUI', None)}
+                #device_info = {'dev_eui': mqtt_messsage.get('devEUI', None)}
+                device_info = {'dev_eui': mqtt_messsage.get('deviceInfo', {}).get('devEui', None)}
+                #client.devices_map[mqtt_messsage['devAddr']] = base64.b64decode(device_info).hex()
                 client.devices_map[mqtt_messsage['devAddr']] = device_info
 
                 # Save this message an topic into MQ
@@ -316,12 +318,13 @@ class LoraServerIOCollector(BaseCollector):
                 try:
                     if 'rxInfo' in mqtt_messsage:
                         x_info = mqtt_messsage.get('rxInfo')
-                        standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayId')).hex()
+                        # standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayId')).hex()
+                        standard_packet['gateway'] = x_info.get('gatewayId')
                         standard_packet['chan'] = x_info.get('channel')
                         standard_packet['rfch'] = x_info.get('rfChain')
                         standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus')) # When protobuf is deserialized, this is a string, but we need to send an integer
                         standard_packet['rssi'] = x_info.get('rssi')
-                        standard_packet['lsnr'] = x_info.get('loRaSNR')
+                        standard_packet['lsnr'] = x_info.get('snr')
                         standard_packet['size'] = x_info.get('size')
 
                     if 'rxInfoLegacy' in mqtt_messsage:
@@ -330,7 +333,7 @@ class LoraServerIOCollector(BaseCollector):
                         x_info = mqtt_messsage.get('rxInfoLegacy')
                         standard_packet['gateway'] = base64.b64decode(x_info.get('gatewayId')).hex()
                         standard_packet['rssi'] = x_info.get('rssi')
-                        standard_packet['lsnr'] = x_info.get('loraSnr')
+                        standard_packet['lsnr'] = x_info.get('snr')
                         standard_packet['chan'] = x_info.get('channel')
                         # standard_packet['tmst'] = x_info.get('time')
                         standard_packet['tmst'] =  datetime.timestamp(dateutil.parser.parse(x_info.get('time', None))) * 1000
@@ -340,7 +343,7 @@ class LoraServerIOCollector(BaseCollector):
                         x_info = mqtt_messsage.get('txInfo')
                         if x_info:
                             standard_packet['freq'] = x_info.get('frequency') / 1000000 if 'frequency' in x_info else None
-                            modulation_info = x_info.get('loRaModulationInfo')
+                            modulation_info = x_info.get('modulation')
                             if modulation_info and 'lora' in modulation_info:
                                 lora_modulation_info = modulation_info.get('lora')
                                 if lora_modulation_info:
@@ -372,7 +375,7 @@ class LoraServerIOCollector(BaseCollector):
                         standard_packet['rfch'] = x_info.get('rfChain')
                         standard_packet['stat'] = get_crc_status_integer(x_info.get('crcStatus'))
                         standard_packet['rssi'] = x_info.get('rssi')
-                        standard_packet['lsnr'] = x_info.get('loRaSNR')
+                        standard_packet['lsnr'] = x_info.get('snr')
                         standard_packet['size'] = x_info.get('size')
                         standard_packet['tmst'] =  datetime.timestamp(dateutil.parser.parse(x_info.get('time', None))) * 1000
 
@@ -458,9 +461,9 @@ class LoraServerIOCollector(BaseCollector):
                             self.log.error("There's an error with Chirsptack collector logic")
 
                         # Get dev_eui, app_name and dev_name from message
-                        device_info = {'app_name': mqtt_messsage.get('applicationName', None),
-                                       'dev_name': mqtt_messsage.get('deviceName', None),
-                                       'dev_eui': mqtt_messsage.get('devEUI', None)}
+                        device_info = {'app_name': mqtt_messsage.get('deviceInfo', {}).get('applicationName', None),
+                                       'dev_name': mqtt_messsage.get('deviceInfo', {}).get('deviceName', None),
+                                       'dev_eui': mqtt_messsage.get('deviceInfo', {}).get('devEui', None)}
                         client.devices_map[standard_packet['dev_addr']] = device_info
 
                         # Set previous values to current message
@@ -498,7 +501,8 @@ class LoraServerIOCollector(BaseCollector):
                 return
 
             # Save packet
-
+            # self.log.debug("standard_packet")
+            # self.log.debug(standard_packet)
             if client.prev_packet is None and len(standard_packet) > 0:
                 # Save packet JSON
                 client.packet_writter_message['packet'] = standard_packet
@@ -648,7 +652,7 @@ if __name__ == '__main__':
         else:
             print('Datacollector IP and port must be provided if not provided a collector ID.')
             exit(0)
-    collector = LoraServerIOCollector(
+    collector = LoraServerIOCollectorV4(
         data_collector_id=collector_obj.id,
         organization_id=collector_obj.organization_id,
         host=collector_obj.ip,

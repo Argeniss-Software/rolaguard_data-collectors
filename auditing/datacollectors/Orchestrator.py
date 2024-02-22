@@ -8,6 +8,7 @@ import pika
 from threading import Thread
 
 from auditing.datacollectors.LoraServerIOCollector import LoraServerIOCollector
+from auditing.datacollectors.LoraServerIOCollectorV4 import LoraServerIOCollectorV4
 from auditing.datacollectors.TTNCollector import TTNCollector
 from auditing.datacollectors.TTNv3Collector import TTNv3Collector
 
@@ -275,6 +276,25 @@ def create_collector(dc):
                 client_key=dc.get('client_key')
                 )
         )
+    elif type == 'chirpstack_v4_collector':
+        collectors.append(
+            LoraServerIOCollectorV4(
+                data_collector_id=dc.get('id'),
+                organization_id=dc.get('organization_id'),
+                host=dc.get('ip'),
+                port=int(dc.get('port')),
+                ssl=dc.get('ssl'),
+                user=dc.get('user'),
+                password=dc.get('password'),
+                last_seen=dc.get('last_seen'),
+                connected=dc.get('connected'),
+                topics=topics,
+                verified=dc.get('verified'),
+                ca_cert=dc.get('ca_cert'),
+                client_cert=dc.get('client_cert'),
+                client_key=dc.get('client_key')
+                )
+            )
     elif type == 'ttn_collector':
         gateways = [gw.strip() for gw in dc['gateway_id'].split(",")]
 

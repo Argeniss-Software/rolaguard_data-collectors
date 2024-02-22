@@ -68,7 +68,7 @@ class GenericMqttCollector:
         if self.mqtt_client:
             print('Existing connection')
         else:
-            self.mqtt_client = mqtt.Client()
+            self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
 
             if self.ca_cert is not None:
                 self.mqtt_client.tls_set(ca_certs=self.ca_cert, keyfile=self.client_key, certfile=self.client_cert)
